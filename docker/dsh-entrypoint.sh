@@ -19,8 +19,8 @@
 #   DSH_TRUSTED_HOSTS extra /api authorities (space or comma separated),
 #                     appended to the derived tailnet hostname
 #
-# The application runs as the unprivileged 'dsh' user (uid 9000); tailscaled
-# (started when a key is set) runs as root in this same process tree.
+# The application runs as the unprivileged 'node' user (uid 1000);
+# tailscaled (started when a key is set) runs as root in this same process tree.
 set -euo pipefail
 
 DSH_PORT="${DSH_PORT:-3080}"
@@ -93,5 +93,5 @@ done
 
 cd "$DSH_WORKSPACE"
 echo "dsh web on http://127.0.0.1:$DSH_PORT (loopback)"
-exec setpriv --reuid=9000 --regid=9000 --init-groups \
-  node /app/apps/cli/lib/bin.js "${DSH_ARGS[@]}"
+exec setpriv --reuid=1000 --regid=1000 --init-groups \
+  dsh "${DSH_ARGS[@]}"
