@@ -1,0 +1,31 @@
+# DeepSeek Harness + Tailscale compose example.
+#
+# Usage: put this in docker/.env (or export before 'docker compose up'):
+#   DEEPSEEK_API_KEY=sk-...
+#   TS_AUTHKEY=tskey-auth-...
+#   TS_HOSTNAME=dsh             # tailnet machine name (optional)
+#   DSH_TRUSTED_HOSTS=          # extra /api authorities, space or comma separated
+#
+# The app binds to loopback only; Tailscale (inside the same image, started by
+# the entrypoint when TS_AUTHKEY is set) serves it over the tailnet on :443.
+# No host ports are exposed.
+services:
+  dsh:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: dsh-tailscale:local
+    restart: unless-stopped
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY}
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_HOSTNAME=${TS_HOSTNAME:-dsh}
+      - DSH_TRUSTED_HOSTS=${DSH_TRUSTED_HOSTS:-}
+    volumes:
+      - dsh-home:/dsh-home        # sessions, settings, profiles, telemetry
+      - workspace:/workspace      # the agent's working directory
+      - tsstate:/var/lib/tailscale  # reuses your tailnet node identity
+volumes:
+  dsh-home:
+  workspace:
+  tsstate:

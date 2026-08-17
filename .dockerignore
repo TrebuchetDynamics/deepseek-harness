@@ -1,0 +1,19 @@
+# Build context hygiene: the build stage compiles and installs fresh.
+.git
+.gitignore
+.ai
+**/node_modules
+**/node_modules/
+**/dist
+**/lib
+**/*.tsbuildinfo
+.pnpm-store
+.pi-subagents
+.dsh-*
+docs
+website
+coverage
+*.log
+.gitattributes
+.gitlab-ci.yml
+.gitmodules
