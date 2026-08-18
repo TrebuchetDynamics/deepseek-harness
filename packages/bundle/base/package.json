@@ -77,7 +77,7 @@
     "@deepseek-ai/dsh-session-query-sqlite": "workspace:^",
     "@deepseek-ai/dsh-session-telemetry-otel": "workspace:^",
     "@deepseek-ai/dsh-session-title": "workspace:^",
-    "@deepseek-ai/dsh-session-title-first-prompt-llm": "workspace:^",
+    "@deepseek-ai/dsh-session-title-latest-message": "workspace:^",
     "@deepseek-ai/dsh-settings-file": "workspace:^",
     "@deepseek-ai/dsh-skill": "workspace:^",
     "@deepseek-ai/dsh-skill-badge": "workspace:^",

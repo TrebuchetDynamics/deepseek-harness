@@ -1100,9 +1100,9 @@ importers:
       '@deepseek-ai/dsh-session-title':
         specifier: workspace:^
         version: link:../../session/session-title
-      '@deepseek-ai/dsh-session-title-first-prompt-llm':
+      '@deepseek-ai/dsh-session-title-latest-message':
         specifier: workspace:^
-        version: link:../../session/session-title-first-prompt-llm
+        version: link:../../session/session-title-latest-message
       '@deepseek-ai/dsh-settings-file':
         specifier: workspace:^
         version: link:../../settings/settings-file
@@ -6329,6 +6329,34 @@ importers:
       '@deepseek-ai/dsh-session-title-llm':
         specifier: workspace:^
         version: link:../session-title-llm
+
+  packages/session/session-title-latest-message:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-session-title':
+        specifier: workspace:^
+        version: link:../session-title
 
   packages/session/session-title-llm:
     dependencies:

@@ -491,6 +491,15 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/session/session-title-latest-message": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
     "packages/context/agent-instructions": {
       "entry": [
         "tests/**/*.spec.ts",

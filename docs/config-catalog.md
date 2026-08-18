@@ -1813,6 +1813,24 @@ Depends on: [`SessionTitleLlmConfig`](../packages/session/session-title-llm/src/
 
 Source: [`packages/session/session-title-first-prompt-llm/src/index.ts:15`](../packages/session/session-title-first-prompt-llm/src/index.ts)
 
+<a id="deepseek-aidsh-session-title-latest-message"></a>
+
+## `@deepseek-ai/dsh-session-title-latest-message`
+
+Requires: `sessionTitle` · `sessions`
+
+```ts config-catalog
+/** Required word and byte limits for the deterministic latest-message title. */
+export interface Config {
+  /** Maximum whitespace-delimited words taken from the newest message. */
+  readonly maxWords: number
+  /** Maximum UTF-8 bytes in the derived title. */
+  readonly maxBytes: number
+}
+```
+
+Source: [`packages/session/session-title-latest-message/src/index.ts:22`](../packages/session/session-title-latest-message/src/index.ts)
+
 <a id="deepseek-aidsh-settings-file"></a>
 
 ## `@deepseek-ai/dsh-settings-file`

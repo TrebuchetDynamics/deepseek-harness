@@ -43,14 +43,11 @@
         fallbackMaxBytes: 40
         maxTitleBytes: 80
 
-    - id: session-title-llm
-      name: '@deepseek-ai/dsh-session-title-first-prompt-llm'
+    - id: session-title-latest-message
+      name: '@deepseek-ai/dsh-session-title-latest-message'
       config:
-        targetWords: 5
-        targetCjkCharacters: 10
-        maxInputBytes: 4096
-        maxOutputTokens: 64
-        timeoutMs: 60000
+        maxWords: 5
+        maxBytes: 40
 
     - id: user-questions
       name: '@deepseek-ai/dsh-user-questions'
