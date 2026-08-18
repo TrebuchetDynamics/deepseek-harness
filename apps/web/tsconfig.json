@@ -52,6 +52,7 @@
     "tests/stats-paged-history.e2e.ts",
     "tests/sidebar-scrollbar.e2e.ts",
     "tests/conversation-column-overflow.e2e.ts",
+    "tests/mobile-sidebar-drawer.e2e.ts",
     "tests/code-mode-round.e2e.ts",
     "tests/composer-draft-scroll.e2e.ts",
     "tests/cordis-tool-round.e2e.ts",
