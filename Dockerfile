@@ -11,6 +11,7 @@
 # monorepo, so it stays small and builds quickly even on slow uplinks.
 
 ARG DSH_VERSION=0.1.0-rc.7
+ARG PNPM_VERSION=11.7.0
 
 FROM node:24-bookworm-slim AS runtime
 
@@ -18,6 +19,7 @@ FROM node:24-bookworm-slim AS runtime
 COPY --from=tailscale/tailscale:stable /usr/local/bin/tailscale /usr/local/bin/tailscaled /usr/local/bin/
 
 ARG DSH_VERSION
+ARG PNPM_VERSION
 ENV NODE_ENV=production \
     DSH_HOME=/dsh-home \
     HOME=/home/node \
@@ -40,7 +42,7 @@ RUN i=0; until apt-get update && apt-get install -y --no-install-recommends bash
 # koffi LLM client binding, dsh-subprocess-local) need theirs run.
 RUN npm install -g --no-audit --no-fund \
       --allow-scripts=node-pty,koffi,@deepseek-ai/dsh-subprocess-local,@google/genai,protobufjs \
-      "@deepseek-ai/dsh@${DSH_VERSION}" \
+      "pnpm@${PNPM_VERSION}" "@deepseek-ai/dsh@${DSH_VERSION}" \
  && rm -rf ~/.npm
 
 # --chmod so the entrypoint stays executable even if the source file's mode is not.
