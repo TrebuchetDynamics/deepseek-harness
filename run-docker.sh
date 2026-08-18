@@ -3,6 +3,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Compose recreation uses temporary container names, so concurrent launches conflict.
+exec 9<"$0"
+flock 9
+
 export DSH_PUBLIC_PORT="${DSH_PUBLIC_PORT:-4080}"
 export DSH_BACKEND_PORT="${DSH_BACKEND_PORT:-4081}"
 export DSH_HOST_USER_HOME="${DSH_HOST_USER_HOME:-$HOME}"
@@ -32,7 +36,12 @@ export DSH_TRUSTED_HOSTS="${magicdns}${DSH_TRUSTED_HOSTS:+ ${DSH_TRUSTED_HOSTS}}
 /usr/bin/docker compose -f docker/docker-compose.yml build --no-cache
 /usr/bin/docker compose -f docker/docker-compose.yml up -d --force-recreate "$@"
 proxy="http://127.0.0.1:${DSH_PUBLIC_PORT}"
-curl --retry 10 --retry-delay 1 --retry-connrefused -fsS -o /dev/null "$proxy/"
+proxy_ready=
+for _ in {1..10}; do
+  if curl -fsS -o /dev/null "$proxy/" 2>/dev/null; then proxy_ready=1; break; fi
+  sleep 1
+done
+[ -n "$proxy_ready" ] || { echo "error: proxy did not start at $proxy" >&2; exit 1; }
 probe=( -sS -o /dev/null -w '%{http_code}' -X POST "$proxy/api/settings.describe" -H "Host: $magicdns" -H "Origin: https://$magicdns" -H 'content-type: application/json' --data '{}' )
 denied="$(curl "${probe[@]}" -H 'Tailscale-User-Login: unauthorized@example.invalid')"
 allowed="$(curl "${probe[@]}" -H "Tailscale-User-Login: $TAILSCALE_OWNER")"
