@@ -37,7 +37,7 @@ The launcher requires:
 
 - a host already logged into Tailscale;
 - repositories under `$HOME/git`;
-- Flutter under `$HOME/flutter`;
+- a Flutter executable on `PATH`;
 - Android platform tools at `/usr/lib/android-sdk/platform-tools/adb`;
 - a Java executable on `PATH`; and
 - Docker Compose, Node.js, and curl.
@@ -55,11 +55,11 @@ export DEEPSEEK_API_KEY=sk-...   # optional until a model request
 ./run-docker.sh
 ```
 
-The launcher derives `DSH_HOST_JAVA_HOME` from the host Java executable, reads the host's MagicDNS name and login from `tailscale status`, builds the image, starts both loopback services, and verifies that an unrelated login receives HTTP 403 while the owner receives HTTP 200. It publishes `https://<host>.<tailnet>.ts.net/` only after those checks pass.
+The launcher derives `DSH_HOST_FLUTTER_HOME` and `DSH_HOST_JAVA_HOME` from the host executables, reads the host's MagicDNS name and login from `tailscale status`, builds the image, starts both loopback services, and verifies that an unrelated login receives HTTP 403 while the owner receives HTTP 200. It publishes `https://<host>.<tailnet>.ts.net/` only after those checks pass.
 
 The host home is mounted read-write at the same path inside the container, the host JDK is mounted read-only, and the Android SDK, udev data, and USB bus are mounted for device builds. The entrypoint links `flutter`, `dart`, `adb`, and `java` into `/usr/local/bin` because login shells may reset `PATH`.
 
-Set `DSH_HOST_USER_HOME` when the host home is not `$HOME`, and set `DSH_HOST_JAVA_HOME` to override Java discovery.
+Set `DSH_HOST_USER_HOME` when the host home is not `$HOME`, `DSH_HOST_FLUTTER_HOME` to override Flutter discovery, and `DSH_HOST_JAVA_HOME` to override Java discovery.
 
 ## Run as a separate tailnet node
 
@@ -70,6 +70,7 @@ export DEEPSEEK_API_KEY=sk-...
 export TS_AUTHKEY=tskey-auth-...
 export TS_HOSTNAME=dsh
 export DSH_HOST_USER_HOME="$HOME"
+export DSH_HOST_FLUTTER_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")"
 export DSH_HOST_JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
 docker compose -f docker/docker-compose.yml up -d --build
 ```
@@ -78,20 +79,21 @@ The entrypoint starts its bundled `tailscaled`, derives that node's MagicDNS nam
 
 ## Environment reference
 
-| Variable             | Default                 | Meaning                                                       |
-| -------------------- | ----------------------- | ------------------------------------------------------------- |
-| `DEEPSEEK_API_KEY`   | _(unset)_               | Model credential; the GUI can start without it                |
-| `DEEPSEEK_BASE_URL`  | _(unset)_               | Optional DeepSeek-compatible endpoint                         |
-| `DSH_PUBLIC_PORT`    | `4080`                  | Host loopback port for Caddy and Tailscale Serve              |
-| `DSH_BACKEND_PORT`   | `4081`                  | Host loopback port for `dsh web`                              |
-| `DSH_HOST_USER_HOME` | `$HOME` in the launcher | Host home mounted read-write at the same container path       |
-| `DSH_HOST_JAVA_HOME` | derived from `java`     | Host JDK mounted read-only at the same container path         |
-| `DSH_TRUSTED_HOSTS`  | _(unset)_               | Additional API authorities appended to the host MagicDNS name |
-| `TAILSCALE_OWNER`    | host Tailscale login    | Login allowed to use owner-only RPC paths through Caddy       |
-| `TS_AUTHKEY`         | _(unset)_               | Auth key enabling the container-owned-node mode               |
-| `TS_HOSTNAME`        | `dsh` in Compose        | Container-owned Tailscale node name                           |
-| `TS_EXTRA_ARGS`      | _(unset)_               | Additional `tailscale up` arguments                           |
-| `TS_USERSPACE`       | `1`                     | Uses userspace networking for a container-owned node          |
+| Variable                | Default                 | Meaning                                                       |
+| ----------------------- | ----------------------- | ------------------------------------------------------------- |
+| `DEEPSEEK_API_KEY`      | _(unset)_               | Model credential; the GUI can start without it                |
+| `DEEPSEEK_BASE_URL`     | _(unset)_               | Optional DeepSeek-compatible endpoint                         |
+| `DSH_PUBLIC_PORT`       | `4080`                  | Host loopback port for Caddy and Tailscale Serve              |
+| `DSH_BACKEND_PORT`      | `4081`                  | Host loopback port for `dsh web`                              |
+| `DSH_HOST_USER_HOME`    | `$HOME` in the launcher | Host home mounted read-write at the same container path       |
+| `DSH_HOST_FLUTTER_HOME` | derived from `flutter`  | Flutter SDK path available inside the mounted host home       |
+| `DSH_HOST_JAVA_HOME`    | derived from `java`     | Host JDK mounted read-only at the same container path         |
+| `DSH_TRUSTED_HOSTS`     | _(unset)_               | Additional API authorities appended to the host MagicDNS name |
+| `TAILSCALE_OWNER`       | host Tailscale login    | Login allowed to use owner-only RPC paths through Caddy       |
+| `TS_AUTHKEY`            | _(unset)_               | Auth key enabling the container-owned-node mode               |
+| `TS_HOSTNAME`           | `dsh` in Compose        | Container-owned Tailscale node name                           |
+| `TS_EXTRA_ARGS`         | _(unset)_               | Additional `tailscale up` arguments                           |
+| `TS_USERSPACE`          | `1`                     | Uses userspace networking for a container-owned node          |
 
 ## Keeping the fork up to date
 

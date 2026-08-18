@@ -7,7 +7,11 @@ export DSH_PUBLIC_PORT="${DSH_PUBLIC_PORT:-4080}"
 export DSH_BACKEND_PORT="${DSH_BACKEND_PORT:-4081}"
 export DSH_HOST_USER_HOME="${DSH_HOST_USER_HOME:-$HOME}"
 [ -d "$DSH_HOST_USER_HOME/git" ] || { echo "error: repository directory not found: $DSH_HOST_USER_HOME/git" >&2; exit 1; }
-[ -x "$DSH_HOST_USER_HOME/flutter/bin/flutter" ] || { echo "error: Flutter SDK not found under $DSH_HOST_USER_HOME/flutter" >&2; exit 1; }
+if [ -z "${DSH_HOST_FLUTTER_HOME:-}" ]; then
+  flutter_bin="$(command -v flutter)" || { echo "error: Flutter executable not found on PATH" >&2; exit 1; }
+  export DSH_HOST_FLUTTER_HOME="$(dirname "$(dirname "$(readlink -f "$flutter_bin")")")"
+fi
+[ -x "$DSH_HOST_FLUTTER_HOME/bin/flutter" ] || { echo "error: Flutter SDK not found: $DSH_HOST_FLUTTER_HOME" >&2; exit 1; }
 [ -x /usr/lib/android-sdk/platform-tools/adb ] || { echo "error: Android SDK not found under /usr/lib/android-sdk" >&2; exit 1; }
 if [ -z "${DSH_HOST_JAVA_HOME:-}" ]; then
   java_bin="$(command -v java)" || { echo "error: Java executable not found" >&2; exit 1; }
