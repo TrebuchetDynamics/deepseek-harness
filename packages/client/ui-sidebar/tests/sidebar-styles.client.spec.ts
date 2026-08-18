@@ -29,7 +29,12 @@ describe('SidebarRoot.module.css', () => {
   it('shares and cancels the wide shell trailing padding structurally', () => {
     const root = declarations('.root')
     expect(root?.get('--dsh-sidebar-inline-padding')).toBe('12px')
-    expect(root?.get('padding')).toBe('6px var(--dsh-sidebar-inline-padding)')
+    expect(root?.get('padding')).toBe(
+      'calc(6px + env(safe-area-inset-top)) var(--dsh-sidebar-inline-padding) calc(6px + env(safe-area-inset-bottom))',
+    )
+    expect(declarations('.root.collapsed')?.get('padding')).toBe(
+      'calc(18px + env(safe-area-inset-top)) 10px calc(6px + env(safe-area-inset-bottom))',
+    )
     expect(declarations('.regionArea')?.get('margin-left')).toBe('-4px')
     expect(declarations('.regionArea')?.get('padding-left')).toBe('4px')
     expect(declarations('.regionArea')?.get('margin-right')).toBe(
@@ -61,6 +66,20 @@ describe('SidebarRoot.module.css', () => {
   it('gives shell rail controls the same base anchor for their shared translation', () => {
     expect(declarations('.collapsed .logoRow')?.get('justify-content')).toBe('flex-start')
     expect(declarations('.collapsed .newSession')?.get('align-self')).toBe('flex-start')
+    expect(declarations('.collapsed .newSession')?.get('width')).toBe('36px')
+  })
+
+  it('grows the rail controls to 44px touch targets on narrow viewports only', () => {
+    // The block sits at EOF (the last rule in the sheet), so capture to end.
+    const media = /@media \(max-width: 1023px\)\s*\{([\s\S]*)$/.exec(css)?.[1] ?? ''
+    // The 56px rail is contract-frozen: 44px controls fit by taking the side
+    // padding from 10 to 6px (44 + 2*6 = 56); the safe-area insets survive.
+    expect(media).toContain('padding: calc(18px + env(safe-area-inset-top)) 6px')
+    expect(media).toContain('.collapsed .iconButton,')
+    expect(media).toContain('.collapsed .newSession {')
+    expect(media).toContain('width: 44px')
+    expect(media).toContain('height: 44px')
+    // The desktop rail keeps the frozen 36px controls.
     expect(declarations('.collapsed .newSession')?.get('width')).toBe('36px')
   })
 })

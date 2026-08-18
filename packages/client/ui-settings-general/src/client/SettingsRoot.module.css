@@ -41,6 +41,15 @@
   border-radius: 50%;
 }
 
+/* Mobile touch targets (WCAG 2.5.8): the rail trigger grows to 44px like the
+   shell's other rail controls, inside the same 56px rail. */
+@media (max-width: 1023px) {
+  .trigger.rail {
+    width: 44px;
+    height: 44px;
+  }
+}
+
 .triggerLabel {
   overflow: hidden;
   white-space: nowrap;

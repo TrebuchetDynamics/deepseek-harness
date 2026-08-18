@@ -205,3 +205,12 @@
   line-height: 18px;
   color: var(--dsw-alias-state-error-primary);
 }
+
+/* Mobile touch target (WCAG 2.5.8): the hero workspace trigger grows from
+   its 28px desktop height on touch viewports. Same narrow breakpoint the
+   layout uses for the sidebar auto-collapse. */
+@media (max-width: 1023px) {
+  .workspace {
+    min-height: 40px;
+  }
+}

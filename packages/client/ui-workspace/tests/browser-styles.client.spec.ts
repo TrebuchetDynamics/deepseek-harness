@@ -110,7 +110,14 @@ describe('WorkspaceBrowser.module.css list', () => {
 
   it('pins both rail controls to the shared left anchor during the column slide', () => {
     expect(declarations('.rail .sectionHeader')?.get('justify-content')).toBe('flex-start')
-    expect(declarations('.rail .iconButton')?.get('width')).toBe('36px')
-    expect(declarations('.rail .search')?.get('width')).toBe('36px')
+  })
+
+  it('grows the rail icon controls to 44px touch targets on narrow viewports', () => {
+    // The media rule sits at EOF, so the last-match helper resolves the mobile
+    // size; the desktop sheet keeps the 36px base earlier in the same sheet.
+    expect(declarations('.rail .iconButton')?.get('width')).toBe('44px')
+    expect(declarations('.rail .iconButton')?.get('height')).toBe('44px')
+    expect(declarations('.rail .searchButton')?.get('width')).toBe('44px')
+    expect(declarations('.rail .searchButton')?.get('height')).toBe('44px')
   })
 })

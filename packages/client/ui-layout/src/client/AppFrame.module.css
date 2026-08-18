@@ -20,6 +20,10 @@
   .frame {
     transition: none;
   }
+
+  .scrim {
+    transition: none;
+  }
 }
 
 .sidebarCol {
@@ -115,5 +119,40 @@
 }
 
 .overlayLayer > * {
+  pointer-events: auto;
+}
+
+/* Narrow overlay drawer: the expanded sidebar overlays the conversation
+   instead of squeezing it. The sidebar stays a normal grid item, so the
+   collapse slide still rides the track transition (SidebarRoot's frozen-width
+   phases are untouched); the center spans every track to keep its full width
+   behind the drawer, and the drawer plus the backdrop sit above it. */
+.frame[data-drawer] .centerCol {
+  grid-column: 1 / -1;
+}
+
+.frame[data-drawer] .sidebarCol {
+  position: relative;
+  z-index: 12;
+}
+
+/* Mobile drawer backdrop: full-frame dim that fades with the drawer slide. It
+   mounts whenever narrow so collapsing fades it out instead of snapping; the
+   closed rail state keeps it transparent and inert. Lighter than the modal
+   mask (mask-2 vs mask-1): the conversation stays readable behind a drawer.
+   Below the shell overlay layer (z-index 20), so popovers and modals keep
+   interaction precedence over the dismiss. */
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: var(--dsw-alias-bg-mask-2);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.frame[data-drawer] .scrim {
+  opacity: 1;
   pointer-events: auto;
 }

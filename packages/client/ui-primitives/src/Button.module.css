@@ -77,3 +77,12 @@
   align-items: center;
   justify-content: center;
 }
+
+/* Mobile touch targets (WCAG 2.5.8): the standard dialog/action form grows
+   from 36 to 44px on touch viewports; the sm form stays compact for dense
+   rows. Same narrow breakpoint the layout uses for the sidebar auto-collapse. */
+@media (max-width: 1023px) {
+  .md {
+    height: 44px;
+  }
+}

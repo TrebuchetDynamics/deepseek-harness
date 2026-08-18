@@ -11,7 +11,10 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 6px var(--dsh-sidebar-inline-padding);
+  /* env() insets keep the rail and drawer clear of notched-device chrome
+     (a no-op inside a browser tab, where the insets are 0). */
+  padding: calc(6px + env(safe-area-inset-top)) var(--dsh-sidebar-inline-padding)
+    calc(6px + env(safe-area-inset-bottom));
   box-sizing: border-box;
   background: var(--dsw-specific-sidebar-fill);
   color: var(--dsw-alias-label-primary);
@@ -26,7 +29,8 @@
    rail (10px side padding), 12px vertical rhythm, 18px from the rail top to
    the whale's box (24px to the 24-wide whale glyph itself). */
 .root.collapsed {
-  padding: 18px 10px 6px;
+  padding: calc(18px + env(safe-area-inset-top)) 10px
+    calc(6px + env(safe-area-inset-bottom));
 }
 
 /* Scrollbars in the column are a pointer affordance: the shell adds this
@@ -269,6 +273,23 @@
   display: flex;
   justify-content: center;
   width: auto;
+}
+
+/* Mobile touch targets (WCAG 2.5.8): the 56px rail is contract-frozen, so
+   the controls grow to 44px inside it by taking the side padding 10 -> 6
+   (44 + 2*6 = 56). Applies at the same narrow breakpoint the layout uses
+   for the auto-collapse. */
+@media (max-width: 1023px) {
+  .collapsed {
+    padding: calc(18px + env(safe-area-inset-top)) 6px
+      calc(6px + env(safe-area-inset-bottom));
+  }
+
+  .collapsed .iconButton,
+  .collapsed .newSession {
+    width: 44px;
+    height: 44px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

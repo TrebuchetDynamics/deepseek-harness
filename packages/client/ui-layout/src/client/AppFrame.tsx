@@ -161,6 +161,22 @@ export function AppFrame({
     actions.setDetails(detailsBase.current - dx)
   }, [actions])
 
+  // Light dismiss of the expanded narrow drawer: the drawer overlays the
+  // conversation (center spans every track behind it) under a dimmed backdrop;
+  // tapping the backdrop (or pressing Escape) collapses it back to the rail.
+  // Scoped to the narrow expanded state only — the wide desktop layout has no
+  // backdrop or keybinding.
+  const closeSidebar = useCallback(() => { actions.closeSidebar() }, [actions])
+  const sidebarOpen = narrow && !sidebarCollapsed
+  useEffect(() => {
+    if (!sidebarOpen) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeSidebar()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => { document.removeEventListener('keydown', onKeyDown) }
+  }, [closeSidebar, sidebarOpen])
+
   return (
     <div
       ref={frameRef}
@@ -169,6 +185,7 @@ export function AppFrame({
       data-sidebar-collapsed={sidebarCollapsed || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
       data-dragging={dragging || undefined}
+      data-drawer={sidebarOpen || undefined}
     >
       <div className={css.sidebarCol}>
         {/* Render-site slot call with live concession output: a closed
@@ -193,8 +210,16 @@ export function AppFrame({
       <div className={css.overlayLayer} data-shell-overlay>
         {renderSlot('shell.overlay', {})}
       </div>
-      {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {/* Mobile drawer backdrop: always mounted on narrow so the dim fades in
+          and out with the drawer slide; it covers the whole frame (the drawer
+          column sits above it) and tapping it collapses the drawer. The shell
+          overlay layer stays above both at z-index 20. */}
+      {narrow && (
+        <div className={css.scrim} onClick={closeSidebar} aria-hidden="true" />
+      )}
+      {/* The collapsed rail is fixed-width and the narrow drawer overlays at the
+          contract default: no resize handle in either state. */}
+      {!sidebarCollapsed && !narrow && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
       {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
     </div>
   )

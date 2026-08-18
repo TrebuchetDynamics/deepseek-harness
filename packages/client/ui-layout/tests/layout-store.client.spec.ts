@@ -61,6 +61,28 @@ describe('createLayoutStore', () => {
     expect(store.getSnapshot().sidebar).toBe(400)
   })
 
+  it('closeSidebar collapses the narrow re-expand override, leaving the preference', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setSidebar(400)
+    actions.setNarrow(true)
+    actions.toggleSidebar()
+    expect(store.getSnapshot().narrowExpanded).toBe(true)
+    actions.closeSidebar()
+    expect(store.getSnapshot()).toEqual({ sidebar: 400, details: 0, narrow: true, narrowExpanded: false })
+    // Closing an already-closed sidebar is a no-op.
+    actions.closeSidebar()
+    expect(store.getSnapshot().narrowExpanded).toBe(false)
+  })
+
+  it('closeSidebar on a wide viewport writes the closed preference (mirrors closeDetails)', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setSidebar(400)
+    actions.closeSidebar()
+    expect(store.getSnapshot().sidebar).toBe(0)
+    actions.closeSidebar()
+    expect(store.getSnapshot().sidebar).toBe(0)
+  })
+
   it('crossing the breakpoint drops the override; a same-value setNarrow keeps it', () => {
     const { store, actions } = createLayoutStore().create()
     actions.setNarrow(true)

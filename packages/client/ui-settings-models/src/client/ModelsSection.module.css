@@ -201,6 +201,16 @@
   line-height: 18px;
 }
 
+/* Mobile touch targets (WCAG 2.5.8): dialog action buttons grow to 44px; the
+   dense provider-row variants keep their 28px form via the more specific
+   .rowActions rule above. */
+@media (max-width: 1023px) {
+  .primaryButton,
+  .secondaryButton {
+    height: 44px;
+  }
+}
+
 .primaryButton:disabled,
 .secondaryButton:disabled,
 .dangerButton:disabled,

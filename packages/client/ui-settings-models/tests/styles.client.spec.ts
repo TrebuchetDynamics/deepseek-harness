@@ -89,4 +89,13 @@ describe('ModelsSection theme styles', () => {
     // branch, and a literal here is a single colour for both themes.
     expect(css).not.toMatch(/var\(--dsw-[a-z0-9-]+\s*,\s*(?:#|rgb|rgba|hsl|hsla)/)
   })
+
+  it('grows dialog action buttons to 44px on narrow viewports', () => {
+    // The media rule sits at EOF; the dense provider-row variants keep their
+    // 28px form via the more specific .rowActions rule.
+    const media = /@media \(max-width: 1023px\)\s*\{([\s\S]*)$/.exec(css)?.[1] ?? ''
+    expect(media).toContain('.primaryButton,')
+    expect(media).toContain('.secondaryButton {')
+    expect(media).toContain('height: 44px')
+  })
 })

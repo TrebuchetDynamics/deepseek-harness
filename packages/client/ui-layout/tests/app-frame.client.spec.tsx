@@ -11,7 +11,7 @@
  * resizes are driven through the ResizeObserver stub.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { AppFrame } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
 import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
@@ -294,15 +294,52 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
   })
 
-  it('narrow toggle re-expands over the squeezed center and back', () => {
+  it('narrow toggle expands an overlay drawer over the full-width center and back', () => {
+    frameWidth = 980
+    const { frame, instance } = mountFrame()
+    expect(frame.hasAttribute('data-drawer')).toBe(false)
+    act(() => { instance.actions.toggleSidebar() })
+    expect(tracks(frame)).toEqual([280, 0])
+    expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(false)
+    // The drawer overlays at the contract default: no resize handle on touch.
+    expect(frame.hasAttribute('data-drawer')).toBe(true)
+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
+    act(() => { instance.actions.toggleSidebar() })
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(frame.hasAttribute('data-drawer')).toBe(false)
+  })
+
+  it('tapping the backdrop collapses the expanded narrow drawer back to the rail', () => {
     frameWidth = 980
     const { frame, instance } = mountFrame()
     act(() => { instance.actions.toggleSidebar() })
     expect(tracks(frame)).toEqual([280, 0])
-    expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(false)
-    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
-    act(() => { instance.actions.toggleSidebar() })
+    const scrim = frame.querySelector('[class*="scrim"]')
+    expect(scrim).toBeTruthy()
+    act(() => { fireEvent.click(scrim!) })
     expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    // The backdrop stays mounted on narrow (it fades out with the slide), so
+    // the drawer state is what flips back to the rail.
+    expect(frame.hasAttribute('data-drawer')).toBe(false)
+    expect(frame.querySelector('[class*="scrim"]')).toBeTruthy()
+  })
+
+  it('Escape collapses the expanded narrow sidebar', () => {
+    frameWidth = 980
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(tracks(frame)).toEqual([280, 0])
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+  })
+
+  it('renders no drawer backdrop or overlay state on a wide viewport', () => {
+    frameWidth = 1920
+    const { frame } = mountFrame()
+    expect(frame.querySelector('[class*="scrim"]')).toBeNull()
+    expect(frame.hasAttribute('data-drawer')).toBe(false)
   })
 
   it('a wide-closed preference re-expands at the contract default while narrow', () => {
