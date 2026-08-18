@@ -37,7 +37,7 @@ docker build -t dsh-tailscale:local -f Dockerfile .
 
 - 宿主已登录 Tailscale；
 - 仓库位于 `$HOME/git`；
-- Flutter 位于 `$HOME/flutter`；
+- `PATH` 中存在 Flutter 可执行文件；
 - Android platform tools 位于 `/usr/lib/android-sdk/platform-tools/adb`；
 - `PATH` 中存在 Java 可执行文件；以及
 - 已安装 Docker Compose、Node.js 和 curl。
@@ -55,11 +55,11 @@ export DEEPSEEK_API_KEY=sk-...   # optional until a model request
 ./run-docker.sh
 ```
 
-启动器根据宿主 Java 可执行文件推导 `DSH_HOST_JAVA_HOME`，从 `tailscale status` 读取宿主的 MagicDNS 名称与登录，构建镜像，启动两个回环服务，并验证无关登录收到 HTTP 403、属主收到 HTTP 200。只有这些检查通过后，它才会发布 `https://<host>.<tailnet>.ts.net/`。
+启动器根据宿主 Flutter 和 Java 可执行文件推导 `DSH_HOST_FLUTTER_HOME` 与 `DSH_HOST_JAVA_HOME`，从 `tailscale status` 读取宿主的 MagicDNS 名称与登录，构建镜像，启动两个回环服务，并验证无关登录收到 HTTP 403、属主收到 HTTP 200。只有这些检查通过后，它才会发布 `https://<host>.<tailnet>.ts.net/`。
 
 宿主 home 以相同路径读写挂载到容器，宿主 JDK 以只读方式挂载，Android SDK、udev 数据和 USB 总线则用于设备构建。入口脚本把 `flutter`、`adb`、`dart` 和 `java` 链接到 `/usr/local/bin`，因为登录 shell 可能重置 `PATH`。
 
-宿主 home 不是 `$HOME` 时设置 `DSH_HOST_USER_HOME`；需要覆盖 Java 自动发现结果时设置 `DSH_HOST_JAVA_HOME`。
+宿主 home 不是 `$HOME` 时设置 `DSH_HOST_USER_HOME`；需要覆盖 Flutter 自动发现结果时设置 `DSH_HOST_FLUTTER_HOME`；需要覆盖 Java 自动发现结果时设置 `DSH_HOST_JAVA_HOME`。
 
 ## 作为独立 tailnet 节点运行
 
@@ -70,6 +70,7 @@ export DEEPSEEK_API_KEY=sk-...
 export TS_AUTHKEY=tskey-auth-...
 export TS_HOSTNAME=dsh
 export DSH_HOST_USER_HOME="$HOME"
+export DSH_HOST_FLUTTER_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")"
 export DSH_HOST_JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
 docker compose -f docker/docker-compose.yml up -d --build
 ```
@@ -78,20 +79,21 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 ## 环境变量参考
 
-| 变量                 | 默认值              | 含义                                         |
-| -------------------- | ------------------- | -------------------------------------------- |
-| `DEEPSEEK_API_KEY`   | _（未设置）_        | 模型凭据；没有它也能启动 GUI                 |
-| `DEEPSEEK_BASE_URL`  | _（未设置）_        | 可选的 DeepSeek 兼容端点                     |
-| `DSH_PUBLIC_PORT`    | `4080`              | Caddy 与 Tailscale Serve 使用的宿主回环端口  |
-| `DSH_BACKEND_PORT`   | `4081`              | `dsh web` 使用的宿主回环端口                 |
-| `DSH_HOST_USER_HOME` | 启动器中为 `$HOME`  | 以相同容器路径读写挂载的宿主 home            |
-| `DSH_HOST_JAVA_HOME` | 根据 `java` 推导    | 以相同容器路径只读挂载的宿主 JDK             |
-| `DSH_TRUSTED_HOSTS`  | _（未设置）_        | 追加到宿主 MagicDNS 名称的其他 API authority |
-| `TAILSCALE_OWNER`    | 宿主 Tailscale 登录 | 可通过 Caddy 使用仅限属主 RPC 路径的登录     |
-| `TS_AUTHKEY`         | _（未设置）_        | 启用容器自有节点模式的 auth key              |
-| `TS_HOSTNAME`        | Compose 中为 `dsh`  | 容器持有的 Tailscale 节点名称                |
-| `TS_EXTRA_ARGS`      | _（未设置）_        | 额外的 `tailscale up` 参数                   |
-| `TS_USERSPACE`       | `1`                 | 容器自有节点使用 userspace networking        |
+| 变量                    | 默认值              | 含义                                          |
+| ----------------------- | ------------------- | --------------------------------------------- |
+| `DEEPSEEK_API_KEY`      | _（未设置）_        | 模型凭据；没有它也能启动 GUI                  |
+| `DEEPSEEK_BASE_URL`     | _（未设置）_        | 可选的 DeepSeek 兼容端点                      |
+| `DSH_PUBLIC_PORT`       | `4080`              | Caddy 与 Tailscale Serve 使用的宿主回环端口   |
+| `DSH_BACKEND_PORT`      | `4081`              | `dsh web` 使用的宿主回环端口                  |
+| `DSH_HOST_USER_HOME`    | 启动器中为 `$HOME`  | 以相同容器路径读写挂载的宿主 home             |
+| `DSH_HOST_FLUTTER_HOME` | 根据 `flutter` 推导 | 已在已挂载宿主 home 中可用的 Flutter SDK 路径 |
+| `DSH_HOST_JAVA_HOME`    | 根据 `java` 推导    | 以相同容器路径只读挂载的宿主 JDK              |
+| `DSH_TRUSTED_HOSTS`     | _（未设置）_        | 追加到宿主 MagicDNS 名称的其他 API authority  |
+| `TAILSCALE_OWNER`       | 宿主 Tailscale 登录 | 可通过 Caddy 使用仅限属主 RPC 路径的登录      |
+| `TS_AUTHKEY`            | _（未设置）_        | 启用容器自有节点模式的 auth key               |
+| `TS_HOSTNAME`           | Compose 中为 `dsh`  | 容器持有的 Tailscale 节点名称                 |
+| `TS_EXTRA_ARGS`         | _（未设置）_        | 额外的 `tailscale up` 参数                    |
+| `TS_USERSPACE`          | `1`                 | 容器自有节点使用 userspace networking         |
 
 ## 让 fork 与上游保持同步
 

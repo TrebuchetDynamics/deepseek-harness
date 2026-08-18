@@ -17,8 +17,9 @@
 #   TS_AUTHKEY=               # unset = host mode; set = own tailnet node
 #   TS_HOSTNAME=dsh
 #   TS_EXTRA_ARGS=
-#   DSH_HOST_USER_HOME=/home/xel   # bind the host user's files at the same path
-#   DSH_HOST_JAVA_HOME=             # host JDK path (run-docker.sh derives it)
+#   DSH_HOST_USER_HOME=/home/xel      # bind the host user's files at the same path
+#   DSH_HOST_FLUTTER_HOME=             # Flutter SDK path (run-docker.sh derives it)
+#   DSH_HOST_JAVA_HOME=                # host JDK path (run-docker.sh derives it)
 #
 # The app binds loopback only; Tailscale (inside the image when TS_AUTHKEY is
 # set, or on the host in host mode) serves it over the tailnet.
@@ -40,9 +41,9 @@ services:
       - ANDROID_HOME=/usr/lib/android-sdk
       - ANDROID_SDK_ROOT=/usr/lib/android-sdk
       - JAVA_HOME=${DSH_HOST_JAVA_HOME:-/home/xel/.sdkman/candidates/java/current}
-      - FLUTTER_ROOT=${DSH_HOST_USER_HOME:-/home/xel}/flutter
+      - FLUTTER_ROOT=${DSH_HOST_FLUTTER_HOME:-${DSH_HOST_USER_HOME:-/home/xel}/flutter}
       - ADB_SERVER_SOCKET=tcp:127.0.0.1:5037
-      - PATH=${DSH_HOST_USER_HOME:-/home/xel}/flutter/bin:/usr/lib/android-sdk/platform-tools:${DSH_HOST_JAVA_HOME:-/home/xel/.sdkman/candidates/java/current}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - PATH=${DSH_HOST_FLUTTER_HOME:-${DSH_HOST_USER_HOME:-/home/xel}/flutter}/bin:/usr/lib/android-sdk/platform-tools:${DSH_HOST_JAVA_HOME:-/home/xel/.sdkman/candidates/java/current}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - TS_AUTHKEY=${TS_AUTHKEY:-}
       - TS_HOSTNAME=${TS_HOSTNAME:-dsh}
       - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:-}
