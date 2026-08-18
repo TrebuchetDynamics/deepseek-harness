@@ -477,7 +477,7 @@
   opacity: 0.7;
 }
 
-/* Mobile touch targets (WCAG 2.5.8): the send circle and the toolbar
+/* Mobile touch targets: the send circle and the toolbar
    controls grow from their 28/34px desktop sizes on touch viewports; the
    mode/plan selects get the same height floor. Same narrow breakpoint the
    layout uses for the sidebar auto-collapse. */

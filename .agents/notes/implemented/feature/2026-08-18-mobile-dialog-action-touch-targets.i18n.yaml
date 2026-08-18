@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-mobile-dialog-action-touch-targets.md
-2026-08-18-mobile-dialog-action-touch-targets.md: 4175ace3d5bf136bf423b93b6db05bb7c0f1a3aa
-2026-08-18-mobile-dialog-action-touch-targets.zh.md: 1d67cb105dde0d47cc2d04a19aef0dbe1d9d9603
+2026-08-18-mobile-dialog-action-touch-targets.md: 6568f06533fcf6bdfeb77cffa729f9a57d49b307
+2026-08-18-mobile-dialog-action-touch-targets.zh.md: 74201323f879d10299df75f5f8dd4b1fe82af5a3

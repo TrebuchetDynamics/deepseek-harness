@@ -1,5 +1,5 @@
 /**
- * Mobile touch-target style contract (WCAG 2.5.8): the composer send circle,
+ * Mobile touch-target style contract: the composer send circle,
  * toolbar controls, and the hero workspace trigger grow above their 28/34px
  * desktop sizes on narrow viewports. Reads the sheets directly, the same
  * idiom as ui-sidebar's sidebar-styles spec.

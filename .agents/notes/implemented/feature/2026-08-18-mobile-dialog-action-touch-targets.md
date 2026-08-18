@@ -6,7 +6,7 @@ English | [中文](2026-08-18-mobile-dialog-action-touch-targets.zh.md)
 
 ## Problem
 
-The first-run onboarding modal (welcome notice and credential dialog) rendered its actions — Continue, Configure later, Save and continue — at 36px tall, below the WCAG 2.5.8 44px touch floor, alongside the same sub-44px rail and composer controls fixed by the earlier mobile touch-target pass. Dialog actions are the most frequent first-tap targets on a fresh install.
+The first-run onboarding modal (welcome notice and credential dialog) rendered its actions — Continue, Configure later, Save and continue — at 36px tall, below the 44px target chosen for primary mobile actions, alongside the same sub-44px rail and composer controls fixed by the earlier mobile touch-target pass. Dialog actions are the most frequent first-tap targets on a fresh install.
 
 ## Decision
 

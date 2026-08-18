@@ -6,7 +6,7 @@ English | [中文](2026-08-18-mobile-touch-targets.zh.md)
 
 ## Problem
 
-A 390px-viewport audit of the shell found every primary mobile control below the WCAG 2.5.8 44px touch-target floor: the sidebar rail buttons were 36x36 (five controls), the composer send circle 34x34, the attach/commands trigger 28x28, and the plan/mode selects plus the hero workspace trigger 28px tall. Small targets make navigation and sending error-prone on touch devices and are the main "too crowded" factor of the mobile shell.
+A 390px-viewport audit of the shell found every primary mobile control undersized for frequent touch use: the sidebar rail buttons were 36x36 (five controls), the composer send circle 34x34, the attach/commands trigger 28x28, and the plan/mode selects plus the hero workspace trigger 28px tall. Small targets make navigation and sending error-prone on touch devices and are the main "too crowded" factor of the mobile shell.
 
 ## Decision
 

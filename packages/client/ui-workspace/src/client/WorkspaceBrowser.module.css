@@ -279,7 +279,7 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* Mobile touch targets (WCAG 2.5.8): the rail's icon controls grow to 44px
+/* Mobile touch targets: the rail's icon controls grow to 44px
    like the shell's, inside the same 56px rail (6px side padding). */
 @media (max-width: 1023px) {
   .rail .iconButton,

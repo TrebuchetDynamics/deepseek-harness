@@ -275,7 +275,7 @@
   width: auto;
 }
 
-/* Mobile touch targets (WCAG 2.5.8): the 56px rail is contract-frozen, so
+/* Mobile touch targets: the 56px rail is contract-frozen, so
    the controls grow to 44px inside it by taking the side padding 10 -> 6
    (44 + 2*6 = 56). Applies at the same narrow breakpoint the layout uses
    for the auto-collapse. */
