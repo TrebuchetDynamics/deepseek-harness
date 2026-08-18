@@ -34,6 +34,21 @@ pnpm run build
 pnpm dsh web
 ```
 
+### Run the Web UI over Tailscale (`run-web.sh`)
+
+On a Tailscale-connected machine, [run-web.sh](run-web.sh) serves a source checkout of the Web UI to the tailnet — over HTTP via the tailnet IP, over HTTPS via MagicDNS, and locally at `http://127.0.0.1:4080/`:
+
+```sh
+git clone https://github.com/deepseek-ai/deepseek-harness.git
+cd deepseek-harness
+pnpm install
+./run-web.sh
+```
+
+### Run the Web UI in Docker (`run-docker.sh`)
+
+For a containerized deployment, [run-docker.sh](run-docker.sh) builds the image and runs the Web UI behind a loopback Tailscale-identity proxy, publishing it as `https://<host>.<tailnet>.ts.net/`. See [docker/README.md](docker/README.md).
+
 ## Community and support
 
 - Feel free to submit feedback or bug reports through [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).

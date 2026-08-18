@@ -34,6 +34,21 @@ pnpm run build
 pnpm dsh web
 ```
 
+### 通过 Tailscale 运行 Web UI（`run-web.sh`）
+
+在已连接 Tailscale 的机器上，[run-web.sh](run-web.sh) 将源码构建的 Web UI 暴露给 tailnet——通过 tailnet IP 走 HTTP、通过 MagicDNS 走 HTTPS，本地地址为 `http://127.0.0.1:4080/`：
+
+```sh
+git clone https://github.com/deepseek-ai/deepseek-harness.git
+cd deepseek-harness
+pnpm install
+./run-web.sh
+```
+
+### 通过 Docker 运行 Web UI（`run-docker.sh`）
+
+如需容器化部署，[run-docker.sh](run-docker.sh) 会构建镜像，并在回环 Tailscale 身份代理后运行 Web UI，将其发布为 `https://<host>.<tailnet>.ts.net/`。详见 [docker/README.md](docker/README.md)。
+
 ## 社区与支持
 
 - 欢迎通过 [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 提交反馈或 bug 报告。
