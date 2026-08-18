@@ -1,14 +1,27 @@
 # DeepSeek Harness + Tailscale compose example.
 #
-# Usage: put this in docker/.env (or export before 'docker compose up'):
-#   DEEPSEEK_API_KEY=sk-...
-#   TS_AUTHKEY=tskey-auth-...
-#   TS_HOSTNAME=dsh             # tailnet machine name (optional)
-#   DSH_TRUSTED_HOSTS=          # extra /api authorities, space or comma separated
+# Host mode (default): the containers share the host's network stack. The
+# harness binds 127.0.0.1:${DSH_BACKEND_PORT}; Caddy binds
+# 127.0.0.1:${DSH_PUBLIC_PORT}, authorizes sensitive API calls with Tailscale
+# Serve identity headers, and proxies to the harness. No ports are published.
 #
-# The app binds to loopback only; Tailscale (inside the same image, started by
-# the entrypoint when TS_AUTHKEY is set) serves it over the tailnet on :443.
-# No host ports are exposed.
+# Own-node mode: set TS_AUTHKEY and the entrypoint joins the tailnet as its
+# own node and serves :443 itself (no host-side serve needed).
+#
+# Environment (or docker/.env):
+#   DEEPSEEK_API_KEY=sk-...   # required for chat; not required to serve the GUI
+#   DSH_PUBLIC_PORT=4080      # Tailscale Serve proxy target
+#   DSH_BACKEND_PORT=4081     # harness loopback port
+#   DSH_TRUSTED_HOSTS=        # extra /api authorities (space or comma separated)
+#   TAILSCALE_OWNER=          # login allowed to use loopback-only API methods
+#   TS_AUTHKEY=               # unset = host mode; set = own tailnet node
+#   TS_HOSTNAME=dsh
+#   TS_EXTRA_ARGS=
+#   DSH_HOST_USER_HOME=/home/xel   # bind the host user's files at the same path
+#   DSH_HOST_JAVA_HOME=             # host JDK path (run-docker.sh derives it)
+#
+# The app binds loopback only; Tailscale (inside the image when TS_AUTHKEY is
+# set, or on the host in host mode) serves it over the tailnet.
 services:
   dsh:
     build:
@@ -16,16 +29,45 @@ services:
       dockerfile: Dockerfile
     image: dsh-tailscale:local
     restart: unless-stopped
+    network_mode: host
     environment:
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DSH_HOME=${DSH_HOST_USER_HOME:-/home/xel}/.dsh
+      - DSH_PORT=${DSH_BACKEND_PORT:-4081}
+      - DSH_WORKSPACE=${DSH_HOST_USER_HOME:-/home/xel}/git
+      - DSH_TRUSTED_HOSTS=${DSH_TRUSTED_HOSTS:-}
+      - HOME=${DSH_HOST_USER_HOME:-/home/xel}
+      - ANDROID_HOME=/usr/lib/android-sdk
+      - ANDROID_SDK_ROOT=/usr/lib/android-sdk
+      - JAVA_HOME=${DSH_HOST_JAVA_HOME:-/home/xel/.sdkman/candidates/java/current}
+      - FLUTTER_ROOT=${DSH_HOST_USER_HOME:-/home/xel}/flutter
+      - ADB_SERVER_SOCKET=tcp:127.0.0.1:5037
+      - PATH=${DSH_HOST_USER_HOME:-/home/xel}/flutter/bin:/usr/lib/android-sdk/platform-tools:${DSH_HOST_JAVA_HOME:-/home/xel/.sdkman/candidates/java/current}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - TS_AUTHKEY=${TS_AUTHKEY:-}
       - TS_HOSTNAME=${TS_HOSTNAME:-dsh}
-      - DSH_TRUSTED_HOSTS=${DSH_TRUSTED_HOSTS:-}
+      - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:-}
     volumes:
-      - dsh-home:/dsh-home        # sessions, settings, profiles, telemetry
-      - workspace:/workspace      # the agent's working directory
-      - tsstate:/var/lib/tailscale  # reuses your tailnet node identity
+      - ${DSH_HOST_USER_HOME:-/home/xel}:${DSH_HOST_USER_HOME:-/home/xel}
+      - ${DSH_HOST_JAVA_HOME:-/home/xel/.sdkman/candidates/java/current}:${DSH_HOST_JAVA_HOME:-/home/xel/.sdkman/candidates/java/current}:ro
+      - /usr/lib/android-sdk:/usr/lib/android-sdk
+      - /run/udev:/run/udev:ro
+      - /dev/bus/usb:/dev/bus/usb
+      - tsstate:/var/lib/tailscale # reuses your tailnet node identity
+
+  auth-proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    user: "1000:1000"
+    network_mode: host
+    depends_on:
+      dsh:
+        condition: service_healthy
+    environment:
+      - DSH_PUBLIC_PORT=${DSH_PUBLIC_PORT:-4080}
+      - DSH_BACKEND_PORT=${DSH_BACKEND_PORT:-4081}
+      - TAILSCALE_OWNER=${TAILSCALE_OWNER:-__remote_settings_disabled__}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+
 volumes:
-  dsh-home:
-  workspace:
   tsstate:

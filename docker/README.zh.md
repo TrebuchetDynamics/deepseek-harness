@@ -1,0 +1,110 @@
+# 通过 Tailscale 提供服务的 Docker 版 DeepSeek Harness
+
+[English](README.md) | 中文
+
+这个个人 fork 工具在容器中运行已发布的 DeepSeek Harness Web GUI（`dsh web`），并让它访问宿主的仓库、Flutter、Android、Java 和 USB 设备。
+
+## 为什么使用回环地址与 Tailscale
+
+`dsh web` 绑定 `127.0.0.1`，因为它的 API 可以执行工具和 shell 命令。Docker 组合保留这项限制，不发布容器端口，也不把应用绑定到网络接口。
+
+宿主模式包含三跳：宿主 Tailscale Serve 终止 tailnet HTTPS，只有回环地址可访问的 Caddy 代理授权来自一个 Tailscale 登录的配置请求，容器化 Harness 则监听另一个回环端口。Tailscale Serve 会剥除客户端提供的身份头，并提供已认证的 `Tailscale-User-Login`；Caddy 仅针对已配置属主与特权 RPC 路径，把 `Host` 和 `Origin` 改写为回环地址。其他请求保留 tailnet authority，并继续经过 Harness 浏览器信任检查。
+
+Harness 的 `--trusted-host` 选项是 DNS rebinding 与跨站栅栏，而不是认证机制。tailnet ACL 控制 GUI 访问。Caddy 规则把设置、凭据、模型发现、preset 管理和原生宿主操作限制给 `TAILSCALE_OWNER`，但所有获准访问 GUI 的 tailnet 用户都能通过普通 agent 工具操作已挂载的宿主文件。
+
+## 文件
+
+| 路径                 | 用途                                                                    |
+| -------------------- | ----------------------------------------------------------------------- |
+| `../Dockerfile`      | 包含已发布 `@deepseek-ai/dsh` CLI 的运行时镜像                          |
+| `dsh-entrypoint.sh`  | 启动 `dsh web`、暴露已挂载工具链，并可选择加入由容器持有的 tailnet 节点 |
+| `docker-compose.yml` | 宿主网络组合、宿主开发环境挂载、USB 访问和代理                          |
+| `Caddyfile`          | 为仅限属主的配置 RPC 提供回环身份代理                                   |
+| `../run-docker.sh`   | 验证宿主、构建、启动、检查并发布组合                                    |
+| `../.dockerignore`   | 排除不需要的构建上下文文件                                              |
+
+## 构建
+
+```sh
+docker build -t dsh-tailscale:local -f Dockerfile .
+```
+
+镜像从 npm 安装已发布的 `@deepseek-ai/dsh` 包及其运行时对等包。`DSH_VERSION` 默认为 `0.1.0-rc.7`；fork 采用其他已发布版本时同步更新它。
+
+## 宿主要求
+
+启动器要求：
+
+- 宿主已登录 Tailscale；
+- 仓库位于 `$HOME/git`；
+- Flutter 位于 `$HOME/flutter`；
+- Android platform tools 位于 `/usr/lib/android-sdk/platform-tools/adb`；
+- `PATH` 中存在 Java 可执行文件；以及
+- 已安装 Docker Compose、Node.js 和 curl。
+
+如有需要，先允许当前用户管理 Tailscale Serve：
+
+```sh
+sudo tailscale set --operator="$USER"
+```
+
+## 在宿主的 Tailscale 节点上运行
+
+```sh
+export DEEPSEEK_API_KEY=sk-...   # optional until a model request
+./run-docker.sh
+```
+
+启动器根据宿主 Java 可执行文件推导 `DSH_HOST_JAVA_HOME`，从 `tailscale status` 读取宿主的 MagicDNS 名称与登录，构建镜像，启动两个回环服务，并验证无关登录收到 HTTP 403、属主收到 HTTP 200。只有这些检查通过后，它才会发布 `https://<host>.<tailnet>.ts.net/`。
+
+宿主 home 以相同路径读写挂载到容器，宿主 JDK 以只读方式挂载，Android SDK、udev 数据和 USB 总线则用于设备构建。入口脚本把 `flutter`、`adb`、`dart` 和 `java` 链接到 `/usr/local/bin`，因为登录 shell 可能重置 `PATH`。
+
+宿主 home 不是 `$HOME` 时设置 `DSH_HOST_USER_HOME`；需要覆盖 Java 自动发现结果时设置 `DSH_HOST_JAVA_HOME`。
+
+## 作为独立 tailnet 节点运行
+
+容器需要持有独立 Tailscale 身份时，先设置 `TS_AUTHKEY`，再直接调用 Compose：
+
+```sh
+export DEEPSEEK_API_KEY=sk-...
+export TS_AUTHKEY=tskey-auth-...
+export TS_HOSTNAME=dsh
+export DSH_HOST_USER_HOME="$HOME"
+export DSH_HOST_JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+docker compose -f docker/docker-compose.yml up -d --build
+```
+
+入口脚本启动镜像内置的 `tailscaled`，推导该节点的 MagicDNS 名称，把它加入受信任宿主，并从容器持有的 tailnet 节点提供 HTTPS。`tsstate` volume 保留节点身份。此模式下 Caddy 服务仍是回环端点，但不是对外服务路径。
+
+## 环境变量参考
+
+| 变量                 | 默认值              | 含义                                         |
+| -------------------- | ------------------- | -------------------------------------------- |
+| `DEEPSEEK_API_KEY`   | _（未设置）_        | 模型凭据；没有它也能启动 GUI                 |
+| `DEEPSEEK_BASE_URL`  | _（未设置）_        | 可选的 DeepSeek 兼容端点                     |
+| `DSH_PUBLIC_PORT`    | `4080`              | Caddy 与 Tailscale Serve 使用的宿主回环端口  |
+| `DSH_BACKEND_PORT`   | `4081`              | `dsh web` 使用的宿主回环端口                 |
+| `DSH_HOST_USER_HOME` | 启动器中为 `$HOME`  | 以相同容器路径读写挂载的宿主 home            |
+| `DSH_HOST_JAVA_HOME` | 根据 `java` 推导    | 以相同容器路径只读挂载的宿主 JDK             |
+| `DSH_TRUSTED_HOSTS`  | _（未设置）_        | 追加到宿主 MagicDNS 名称的其他 API authority |
+| `TAILSCALE_OWNER`    | 宿主 Tailscale 登录 | 可通过 Caddy 使用仅限属主 RPC 路径的登录     |
+| `TS_AUTHKEY`         | _（未设置）_        | 启用容器自有节点模式的 auth key              |
+| `TS_HOSTNAME`        | Compose 中为 `dsh`  | 容器持有的 Tailscale 节点名称                |
+| `TS_EXTRA_ARGS`      | _（未设置）_        | 额外的 `tailscale up` 参数                   |
+| `TS_USERSPACE`       | `1`                 | 容器自有节点使用 userspace networking        |
+
+## 让 fork 与上游保持同步
+
+```sh
+git fetch upstream
+git merge upstream/master
+git push origin master
+```
+
+Docker 工具位于产品包之外，因此上游合并通常只有很小的冲突面。
+
+## 限制
+
+- 镜像运行 `DSH_VERSION` 对应的已发布包，而不是当前 monorepo 源码。
+- 新增仅限回环访问的 RPC 必须加入 Caddy 属主 matcher 才能远程配置；遗漏时会以 HTTP 403 快速失败。
+- 宿主模式有意针对单台机器配置，并授予容器对宿主 home 的读写访问。只允许你信任的 tailnet 身份访问 GUI，因为这些身份能对该数据执行 shell 命令。

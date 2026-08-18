@@ -91,6 +91,13 @@ for h in "${trusted[@]}"; do
   [[ -n "$h" ]] && DSH_ARGS+=(--trusted-host "$h")
 done
 
+# Login shells reset PATH, so expose mounted host toolchains through the
+# container's standard executable directory.
+[[ -x "${FLUTTER_ROOT:-}/bin/flutter" ]] && ln -sf "$FLUTTER_ROOT/bin/flutter" /usr/local/bin/flutter
+[[ -x "${FLUTTER_ROOT:-}/bin/dart" ]] && ln -sf "$FLUTTER_ROOT/bin/dart" /usr/local/bin/dart
+[[ -x "${ANDROID_HOME:-}/platform-tools/adb" ]] && ln -sf "$ANDROID_HOME/platform-tools/adb" /usr/local/bin/adb
+[[ -x "${JAVA_HOME:-}/bin/java" ]] && ln -sf "$JAVA_HOME/bin/java" /usr/local/bin/java
+
 cd "$DSH_WORKSPACE"
 echo "dsh web on http://127.0.0.1:$DSH_PORT (loopback)"
 exec setpriv --reuid=1000 --regid=1000 --init-groups \

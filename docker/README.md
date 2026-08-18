@@ -1,41 +1,27 @@
 # DeepSeek Harness in Docker, served over Tailscale
 
-A personal-fork utility: run the DeepSeek Harness Web GUI (`dsh web`) from a
-container and expose it over a Tailscale tailnet. These files are additive to
-the upstream repo and never change product code, which is what lets the fork
-stay in sync with upstream with trivial conflicts.
+English | [中文](README.zh.md)
+
+This personal-fork utility runs the published DeepSeek Harness Web GUI (`dsh web`) in a container with the host's repositories, Flutter, Android, Java, and USB device access.
 
 ## Why loopback + Tailscale
 
-`dsh web` deliberately binds `127.0.0.1` only and refuses `--host 0.0.0.0`
-(binding all interfaces would expose remote code execution to the network). The
-image keeps that guarantee: `tailscaled` runs inside the same container and
-`tailscale serve` proxies the tailnet :443 (MagicDNS TLS) to
-`http://127.0.0.1:3080`. The browser is only ever on the encrypted tailnet;
-nothing is published to the host or the public internet.
+`dsh web` binds `127.0.0.1` because its API can execute tools and shell commands. The Docker composition preserves that restriction instead of publishing a container port or binding the application to a network interface.
 
-The /api transport has a browser-trust fence (DNS-rebinding and cross-site
-defense). The entrypoint passes the serving hostname to `dsh --trusted-host`,
-so the fence accepts requests whose Host is the tailnet name. The fence is not
-an auth layer: your tailnet ACLs remain the access control for the GUI.
+Host mode uses three hops: host Tailscale Serve terminates tailnet HTTPS, a loopback-only Caddy proxy authorizes configuration requests from one Tailscale login, and the containerized Harness listens on a second loopback port. Tailscale Serve strips client-supplied identity headers and supplies the authenticated `Tailscale-User-Login`; Caddy rewrites `Host` and `Origin` to loopback only for the configured owner and privileged RPC paths. Other requests retain the tailnet authority and continue through the Harness browser-trust checks.
 
-## The configuration plane stays loopback
-
-Settings and credential RPCs (`settings.*`, `credentials.*`,
-`llm.discoverModels`, agent-preset management) are pinned to loopback even on a
-trusted-host deployment. So you configure the container through the environment,
-not the GUI: `DEEPSEEK_API_KEY` (and optionally `DEEPSEEK_BASE_URL`) are read by
-the LLM provider at request time. Everything a session does over the GUI — chat,
-tools, files, subagents — works over the tailnet.
+The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not authentication. Tailnet ACLs control access to the GUI. The Caddy rule limits settings, credentials, model discovery, preset management, and native host operations to `TAILSCALE_OWNER`, but any tailnet user allowed to reach the GUI can run ordinary agent tools against the mounted host files.
 
 ## Files
 
-| Path | Purpose |
-| --- | --- |
-| `../Dockerfile` | Slim runtime image; installs the published `@deepseek-ai/dsh` CLI (`DSH_VERSION` ARG) |
-| `dsh-entrypoint.sh` | Join the tailnet (when a key is set), serve :443, then run `dsh web` as uid 9000 |
-| `docker-compose.yml` | Reference compose wiring an API key, a tailnet key, and volumes |
-| `../.dockerignore` | Keeps the build context lean |
+| Path                 | Purpose                                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------------------- |
+| `../Dockerfile`      | Runtime image containing the published `@deepseek-ai/dsh` CLI                                     |
+| `dsh-entrypoint.sh`  | Starts `dsh web`, exposes mounted toolchains, and optionally joins a container-owned tailnet node |
+| `docker-compose.yml` | Host-network composition, host development mounts, USB access, and proxy                          |
+| `Caddyfile`          | Loopback identity proxy for owner-only configuration RPCs                                         |
+| `../run-docker.sh`   | Validates the host, builds, starts, verifies, and publishes the composition                       |
+| `../.dockerignore`   | Excludes unnecessary build-context files                                                          |
 
 ## Build
 
@@ -43,111 +29,82 @@ tools, files, subagents — works over the tailnet.
 docker build -t dsh-tailscale:local -f Dockerfile .
 ```
 
-The image installs the published `@deepseek-ai/dsh` CLI and its workspace peers
-(web app, built frontend `dist/`, native addons) from npm, so it builds in
-minutes and stays small. `DSH_VERSION` (ARG, default `0.1.0-rc.7`) pins the
-release; bump it together with the fork's upstream sync. A source-built
-monorepo image is possible but not provided by default — it compiles the whole
-repository.
+The image installs the published `@deepseek-ai/dsh` package and its runtime peers from npm. `DSH_VERSION` defaults to `0.1.0-rc.7`; bump it when the fork adopts another published release.
 
-## Run as its own tailnet node (needs an auth key)
+## Host requirements
 
-Get a Tailscale auth key from the admin console and a DeepSeek API key:
+The launcher requires:
+
+- a host already logged into Tailscale;
+- repositories under `$HOME/git`;
+- Flutter under `$HOME/flutter`;
+- Android platform tools at `/usr/lib/android-sdk/platform-tools/adb`;
+- a Java executable on `PATH`; and
+- Docker Compose, Node.js, and curl.
+
+Allow the current user to manage Tailscale Serve once if required:
+
+```sh
+sudo tailscale set --operator="$USER"
+```
+
+## Run on the host's Tailscale node
+
+```sh
+export DEEPSEEK_API_KEY=sk-...   # optional until a model request
+./run-docker.sh
+```
+
+The launcher derives `DSH_HOST_JAVA_HOME` from the host Java executable, reads the host's MagicDNS name and login from `tailscale status`, builds the image, starts both loopback services, and verifies that an unrelated login receives HTTP 403 while the owner receives HTTP 200. It publishes `https://<host>.<tailnet>.ts.net/` only after those checks pass.
+
+The host home is mounted read-write at the same path inside the container, the host JDK is mounted read-only, and the Android SDK, udev data, and USB bus are mounted for device builds. The entrypoint links `flutter`, `dart`, `adb`, and `java` into `/usr/local/bin` because login shells may reset `PATH`.
+
+Set `DSH_HOST_USER_HOME` when the host home is not `$HOME`, and set `DSH_HOST_JAVA_HOME` to override Java discovery.
+
+## Run as a separate tailnet node
+
+Set `TS_AUTHKEY` before invoking Compose directly when the container should own a separate Tailscale identity:
 
 ```sh
 export DEEPSEEK_API_KEY=sk-...
 export TS_AUTHKEY=tskey-auth-...
-export TS_HOSTNAME=dsh          # the tailnet machine name (optional)
+export TS_HOSTNAME=dsh
+export DSH_HOST_USER_HOME="$HOME"
+export DSH_HOST_JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-The served URL appears in the logs (`docker compose logs -f dsh`). Open
-`https://dsh.your-tailnet.ts.net/` from any tailnet device. Your tailnet node
-identity persists in the `tsstate` volume, so only the first start needs
-`TS_AUTHKEY`.
-
-## Run using your PC's existing Tailscale node (no auth key)
-
-If the host machine is already a tailnet node (the common case), the container
-can share its network stack and you expose the app with the host's own
-`tailscale serve`. No container-side auth key is needed: the app still binds
-loopback only, and your existing node name serves it.
-
-```sh
-# 1. run the container on the host network, on a free loopback port
-docker run -d --name dsh-ts --network host \
-  -e DSH_PORT=3137 \
-  -e DSH_TRUSTED_HOSTS=<your-node>.<your-tailnet>.ts.net \
-  -e DEEPSEEK_API_KEY=sk-... \
-  -v dsh-home:/dsh-home -v workspace:/workspace \
-  dsh-tailscale:local
-
-# 2. on the HOST, allow your user to manage serve, then forward :443 to that port
-sudo tailscale set --operator=$USER        # once; makes 'tailscale serve' work without root
-tailscale serve --bg --https=443 http://127.0.0.1:3137
-
-# 3. open the harness from any tailnet device
-#    https://<your-node>.<your-tailnet>.ts.net/
-```
-
-`DSH_TRUSTED_HOSTS` carries the MagicDNS name the fence must accept (the
-own-node mode above derives it automatically from the node's own tailscaled).
-
-## Run without Tailscale (localhost only)
-
-```sh
-docker run --rm -p 127.0.0.1:3080:3080 \
-  -e DEEPSEEK_API_KEY=sk-... -v dsh-home:/dsh-home -v workspace:/workspace \
-  dsh-tailscale:local
-```
-
-With no `TS_AUTHKEY` the container skips Tailscale. Note the app binds
-`127.0.0.1` *inside* the container, so a published port only works when both
-sides use loopback; publishing to a non-loopback host address will not reach it
-— that is the point. To read the UI from inside the container use
-`docker exec <c> curl http://127.0.0.1:3080/`.
+The entrypoint starts its bundled `tailscaled`, derives that node's MagicDNS name, adds it as a trusted host, and serves HTTPS from the container-owned tailnet node. The `tsstate` volume retains the node identity. The Caddy service remains a loopback endpoint but is not the serving path in this mode.
 
 ## Environment reference
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `TS_AUTHKEY` | *(unset)* | Tailscale auth key; unset disables the tailnet entirely |
-| `TS_HOSTNAME` | container id | Tailscale machine name |
-| `TS_EXTRA_ARGS` | *(empty)* | Extra `tailscale up` args (e.g. `--advertise-tags=tag:dsh`) |
-| `TS_USERSPACE` | `1` | `1` = userspace networking (no NET_ADMIN, no /dev/net/tun); `0` = kernel tun when available |
-| `DSH_PORT` | `3080` | Web UI listen port (also the `tailscale serve` target) |
-| `DSH_WORKSPACE` | `/workspace` | Agent working directory |
-| `DSH_TRUSTED_HOSTS` | *(empty)* | Extra /api authorities (space/comma separated) appended to the derived tailnet name |
-| `DEEPSEEK_API_KEY` | *(empty)* | LLM credential read by the provider (required to do anything) |
-| `DEEPSEEK_BASE_URL` | *(empty)* | Optional DeepSeek-compatible base URL |
+| Variable             | Default                 | Meaning                                                       |
+| -------------------- | ----------------------- | ------------------------------------------------------------- |
+| `DEEPSEEK_API_KEY`   | _(unset)_               | Model credential; the GUI can start without it                |
+| `DEEPSEEK_BASE_URL`  | _(unset)_               | Optional DeepSeek-compatible endpoint                         |
+| `DSH_PUBLIC_PORT`    | `4080`                  | Host loopback port for Caddy and Tailscale Serve              |
+| `DSH_BACKEND_PORT`   | `4081`                  | Host loopback port for `dsh web`                              |
+| `DSH_HOST_USER_HOME` | `$HOME` in the launcher | Host home mounted read-write at the same container path       |
+| `DSH_HOST_JAVA_HOME` | derived from `java`     | Host JDK mounted read-only at the same container path         |
+| `DSH_TRUSTED_HOSTS`  | _(unset)_               | Additional API authorities appended to the host MagicDNS name |
+| `TAILSCALE_OWNER`    | host Tailscale login    | Login allowed to use owner-only RPC paths through Caddy       |
+| `TS_AUTHKEY`         | _(unset)_               | Auth key enabling the container-owned-node mode               |
+| `TS_HOSTNAME`        | `dsh` in Compose        | Container-owned Tailscale node name                           |
+| `TS_EXTRA_ARGS`      | _(unset)_               | Additional `tailscale up` arguments                           |
+| `TS_USERSPACE`       | `1`                     | Uses userspace networking for a container-owned node          |
 
-## Keeping the fork up to date with upstream
-
-The upstream project is the second remote (`upstream`):
-
-```sh
-git remote -v
-#   origin    https://github.com/<you>/deepseek-harness.git   (this fork)
-#   upstream  https://github.com/deepseek-ai/deepseek-harness.git
-```
-
-To pull upstream and rebase the fork's utilities on top:
+## Keeping the fork up to date
 
 ```sh
 git fetch upstream
-git rebase upstream/master     # or: git merge upstream/master
-git push --force-with-lease origin master
+git merge upstream/master
+git push origin master
 ```
 
-Utility files are additive to paths upstream does not touch (`docker/`,
-`Dockerfile`, `.dockerignore`), so the rebase stays near-conflict-free.
+The Docker utility stays outside product packages so upstream merges normally have a small conflict surface.
 
-## Known limitations
+## Limitations
 
-- The configuration plane is loopback-only by design: set keys and settings
-  through the environment. This is upstream `dsh web` behavior, not a regression.
-- The image runs the published `dsh` packages at `DSH_VERSION`, not a
-  source-built monorepo; fork-only product changes would require the
-  source-build variant.
-- `tailscale serve` needs MagicDNS-enabled HTTPS-capable tailnet names (the
-  default `*.ts.net` names qualify automatically).
+- The image runs the published packages at `DSH_VERSION`, not the current monorepo source.
+- A new loopback-only RPC must be added to the Caddy owner matcher before it becomes remotely configurable; omission fails closed with HTTP 403.
+- Host mode is intentionally machine-specific and grants the container read-write access to the host home. Restrict GUI reachability to tailnet identities trusted to execute shell commands against that data.
