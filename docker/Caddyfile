@@ -7,6 +7,13 @@
 
 :{$DSH_PUBLIC_PORT} {
 	bind 127.0.0.1
+	encode zstd gzip
+
+	@versioned_bundle {
+		path_regexp versionedBundle ^/plugins/.+/client\.js$
+		query rev=*
+	}
+	header @versioned_bundle >Cache-Control "public, max-age=31536000, immutable"
 
 	@owner_sensitive {
 		header Tailscale-User-Login {$TAILSCALE_OWNER}
