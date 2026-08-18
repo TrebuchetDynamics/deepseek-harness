@@ -36,9 +36,16 @@ describe('AppFrame.module.css', () => {
     // The center spans every track behind the drawer; the sidebar stays a
     // normal grid item (position: relative just lifts z-index) above it, so
     // the collapse slide still rides the grid-track transition.
-    expect(declarations('.frame[data-drawer] .centerCol')?.get('grid-column')).toBe('1 / -1')
-    expect(declarations('.frame[data-drawer] .sidebarCol')?.get('position')).toBe('relative')
-    expect(declarations('.frame[data-drawer] .sidebarCol')?.get('z-index')).toBe('12')
+    expect(declarations('.frame[data-drawer] .centerCol')).toEqual(new Map([
+      ['grid-column', '1 / -1'],
+      ['grid-row', '1'],
+    ]))
+    expect(declarations('.frame[data-drawer] .sidebarCol')).toEqual(new Map([
+      ['grid-column', '1'],
+      ['grid-row', '1'],
+      ['position', 'relative'],
+      ['z-index', '12'],
+    ]))
   })
 
   it('dims the full-frame backdrop with the lighter mask and fades it in and out', () => {

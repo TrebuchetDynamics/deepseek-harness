@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-mobile-overlay-drawer.md
-2026-08-18-mobile-overlay-drawer.md: 8bff7f83d44c67f012fd4d00899a30e266643864
-2026-08-18-mobile-overlay-drawer.zh.md: e947dd1733200695837e176b0f56c49abae52519
+2026-08-18-mobile-overlay-drawer.md: 46b5fda93437ddfb9ba6f7bf6a0a6dacf571e8b8
+2026-08-18-mobile-overlay-drawer.zh.md: 6903efc4d044ab09a6e44d8f1aacd13d0a73949e

@@ -129,9 +129,12 @@
    behind the drawer, and the drawer plus the backdrop sit above it. */
 .frame[data-drawer] .centerCol {
   grid-column: 1 / -1;
+  grid-row: 1;
 }
 
 .frame[data-drawer] .sidebarCol {
+  grid-column: 1;
+  grid-row: 1;
   position: relative;
   z-index: 12;
 }
