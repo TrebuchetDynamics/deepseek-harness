@@ -35,7 +35,12 @@ magicdns="${tailnet[0]:-}"
 export TAILSCALE_OWNER="${TAILSCALE_OWNER:-${tailnet[1]:-}}"
 [ -n "$magicdns" ] || { echo "error: Tailscale MagicDNS name unavailable" >&2; exit 1; }
 [ -n "$TAILSCALE_OWNER" ] || { echo "error: Tailscale owner login unavailable" >&2; exit 1; }
-export DSH_TRUSTED_HOSTS="${magicdns}${DSH_TRUSTED_HOSTS:+ ${DSH_TRUSTED_HOSTS}}"
+# Both the MagicDNS name and the raw tailnet IPv4 must pass the harness
+# browser-trust fences (/api and the sidebar plugin's /sidebar routes): a
+# browser reaching the GUI over the bare tailnet address carries the IP as
+# its Host, not the DNS name.
+tailnet_ip="$(tailscale ip -4 2>/dev/null | head -n1 || true)"
+export DSH_TRUSTED_HOSTS="${magicdns}${tailnet_ip:+ ${tailnet_ip}}${DSH_TRUSTED_HOSTS:+ ${DSH_TRUSTED_HOSTS}}"
 
 /usr/bin/docker compose -f docker/docker-compose.yml build --no-cache
 /usr/bin/docker compose -f docker/docker-compose.yml up -d --force-recreate "$@"

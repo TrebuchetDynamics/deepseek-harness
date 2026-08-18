@@ -55,7 +55,7 @@ export DEEPSEEK_API_KEY=sk-...   # optional until a model request
 ./run-docker.sh
 ```
 
-The launcher derives `DSH_HOST_FLUTTER_HOME` and `DSH_HOST_JAVA_HOME` from the host executables, reads the host's MagicDNS name and login from `tailscale status`, builds the image, starts both loopback services, and verifies that an unrelated login receives HTTP 403 while the owner receives HTTP 200. It publishes `https://<host>.<tailnet>.ts.net/` only after those checks pass.
+The launcher derives `DSH_HOST_FLUTTER_HOME` and `DSH_HOST_JAVA_HOME` from the host executables, reads the host's MagicDNS name, tailnet IPv4, and login from `tailscale status`, builds the image, starts both loopback services, and verifies that an unrelated login receives HTTP 403 while the owner receives HTTP 200. It trusts the MagicDNS name and the tailnet IPv4 at the harness browser-trust fences and publishes `https://<host>.<tailnet>.ts.net/` only after those checks pass.
 
 The host home is mounted read-write at the same path inside the container, the host JDK is mounted read-only, and the Android SDK, udev data, and USB bus are mounted for device builds. The entrypoint links `flutter`, `dart`, `adb`, and `java` into `/usr/local/bin` because login shells may reset `PATH`.
 
@@ -88,7 +88,7 @@ The entrypoint starts its bundled `tailscaled`, derives that node's MagicDNS nam
 | `DSH_HOST_USER_HOME`    | `$HOME` in the launcher | Host home mounted read-write at the same container path       |
 | `DSH_HOST_FLUTTER_HOME` | derived from `flutter`  | Flutter SDK path available inside the mounted host home       |
 | `DSH_HOST_JAVA_HOME`    | derived from `java`     | Host JDK mounted read-only at the same container path         |
-| `DSH_TRUSTED_HOSTS`     | _(unset)_               | Additional API authorities appended to the host MagicDNS name |
+| `DSH_TRUSTED_HOSTS`     | _(unset)_               | Additional API authorities appended to the host MagicDNS name and tailnet IPv4 (both pre-filled by the launcher) |
 | `TAILSCALE_OWNER`       | host Tailscale login    | Login allowed to use owner-only RPC paths through Caddy       |
 | `TS_AUTHKEY`            | _(unset)_               | Auth key enabling the container-owned-node mode               |
 | `TS_HOSTNAME`           | `dsh` in Compose        | Container-owned Tailscale node name                           |

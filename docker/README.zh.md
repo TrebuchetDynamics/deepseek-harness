@@ -55,7 +55,7 @@ export DEEPSEEK_API_KEY=sk-...   # optional until a model request
 ./run-docker.sh
 ```
 
-启动器根据宿主 Flutter 和 Java 可执行文件推导 `DSH_HOST_FLUTTER_HOME` 与 `DSH_HOST_JAVA_HOME`，从 `tailscale status` 读取宿主的 MagicDNS 名称与登录，构建镜像，启动两个回环服务，并验证无关登录收到 HTTP 403、属主收到 HTTP 200。只有这些检查通过后，它才会发布 `https://<host>.<tailnet>.ts.net/`。
+启动器根据宿主 Flutter 和 Java 可执行文件推导 `DSH_HOST_FLUTTER_HOME` 与 `DSH_HOST_JAVA_HOME`，从 `tailscale status` 读取宿主的 MagicDNS 名称、tailnet IPv4 与登录，构建镜像，启动两个回环服务，并验证无关登录收到 HTTP 403、属主收到 HTTP 200。它在 harness 浏览器信任栅栏中同时信任 MagicDNS 名称与 tailnet IPv4，只有这些检查通过后，它才会发布 `https://<host>.<tailnet>.ts.net/`。
 
 宿主 home 以相同路径读写挂载到容器，宿主 JDK 以只读方式挂载，Android SDK、udev 数据和 USB 总线则用于设备构建。入口脚本把 `flutter`、`adb`、`dart` 和 `java` 链接到 `/usr/local/bin`，因为登录 shell 可能重置 `PATH`。
 
@@ -88,7 +88,7 @@ docker compose -f docker/docker-compose.yml up -d --build
 | `DSH_HOST_USER_HOME`    | 启动器中为 `$HOME`  | 以相同容器路径读写挂载的宿主 home             |
 | `DSH_HOST_FLUTTER_HOME` | 根据 `flutter` 推导 | 已在已挂载宿主 home 中可用的 Flutter SDK 路径 |
 | `DSH_HOST_JAVA_HOME`    | 根据 `java` 推导    | 以相同容器路径只读挂载的宿主 JDK              |
-| `DSH_TRUSTED_HOSTS`     | _（未设置）_        | 追加到宿主 MagicDNS 名称的其他 API authority  |
+| `DSH_TRUSTED_HOSTS`     | _（未设置）_        | 追加到宿主 MagicDNS 名称与 tailnet IPv4 的其他 API authority（二者由启动器预填） |
 | `TAILSCALE_OWNER`       | 宿主 Tailscale 登录 | 可通过 Caddy 使用仅限属主 RPC 路径的登录      |
 | `TS_AUTHKEY`            | _（未设置）_        | 启用容器自有节点模式的 auth key               |
 | `TS_HOSTNAME`           | Compose 中为 `dsh`  | 容器持有的 Tailscale 节点名称                 |
