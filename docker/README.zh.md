@@ -29,7 +29,7 @@ Harness 的 `--trusted-host` 选项是 DNS rebinding 与跨站栅栏，而不是
 docker build -t dsh-tailscale:local -f Dockerfile .
 ```
 
-镜像从 npm 安装已发布的 `@deepseek-ai/dsh` 包及其运行时对等包。`DSH_VERSION` 默认为 `0.1.0-rc.7`；fork 采用其他已发布版本时同步更新它。
+镜像从 npm 安装已发布的 `@deepseek-ai/dsh` 包、其运行时对等包，以及用于 profile 插件管理的 pnpm。`DSH_VERSION` 默认为 `0.1.0-rc.7`，`PNPM_VERSION` 则与仓库的 `packageManager` 一致；固定版本变化时更新对应构建参数。
 
 ## 宿主要求
 

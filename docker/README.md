@@ -29,7 +29,7 @@ The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not
 docker build -t dsh-tailscale:local -f Dockerfile .
 ```
 
-The image installs the published `@deepseek-ai/dsh` package and its runtime peers from npm. `DSH_VERSION` defaults to `0.1.0-rc.7`; bump it when the fork adopts another published release.
+The image installs the published `@deepseek-ai/dsh` package, its runtime peers, and pnpm for profile-plugin management from npm. `DSH_VERSION` defaults to `0.1.0-rc.7`, while `PNPM_VERSION` matches the repository's `packageManager`; update either build argument when its pinned release changes.
 
 ## Host requirements
 
