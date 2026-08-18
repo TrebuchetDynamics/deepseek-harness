@@ -209,6 +209,10 @@
   .secondaryButton {
     height: 44px;
   }
+
+  .input {
+    min-height: 40px;
+  }
 }
 
 .primaryButton:disabled,

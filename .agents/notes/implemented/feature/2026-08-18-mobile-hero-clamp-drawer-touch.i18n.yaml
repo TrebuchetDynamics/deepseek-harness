@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-mobile-hero-clamp-drawer-touch.md
+2026-08-18-mobile-hero-clamp-drawer-touch.md: 756bb2df0cbcfd9bd38af5a8f7184960dca5535e
+2026-08-18-mobile-hero-clamp-drawer-touch.zh.md: 748aa0c243c2a4fbf5ae5eae490f46d96fa0f6c9

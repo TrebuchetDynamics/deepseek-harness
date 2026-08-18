@@ -97,5 +97,7 @@ describe('ModelsSection theme styles', () => {
     expect(media).toContain('.primaryButton,')
     expect(media).toContain('.secondaryButton {')
     expect(media).toContain('height: 44px')
+    expect(media).toContain('.input {')
+    expect(media).toContain('min-height: 40px')
   })
 })

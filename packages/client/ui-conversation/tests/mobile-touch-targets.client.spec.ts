@@ -16,6 +16,10 @@ const hero = readFileSync(
   fileURLToPath(new URL('../src/client/skeleton/HeroShell.module.css', import.meta.url)),
   'utf8',
 )
+const conversationRoot = readFileSync(
+  fileURLToPath(new URL('../src/client/skeleton/ConversationRoot.module.css', import.meta.url)),
+  'utf8',
+)
 
 /** The trailing narrow-viewport block (both sheets end with it). */
 function narrowBlock(css: string): string {
@@ -43,5 +47,12 @@ describe('mobile touch targets', () => {
     expect(inputBar).toMatch(
       /padding: 0 var\(--dsh-composer-side-clearance\) calc\(8px \+ env\(safe-area-inset-bottom\)\);/,
     )
+  })
+
+  it('wraps the hero workspace row so the preset chip never clips on narrow viewports', () => {
+    const block = narrowBlock(conversationRoot)
+    expect(block).toContain('.heroWorkspaceRow {')
+    expect(block).toContain('flex-wrap: wrap')
+    expect(block).toContain('row-gap: 8px')
   })
 })

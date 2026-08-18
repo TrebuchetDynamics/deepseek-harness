@@ -117,3 +117,11 @@
   color: var(--dsw-alias-label-caption);
   white-space: normal;
 }
+
+/* Mobile touch target: match HeroShell's .workspace floor so the preset
+   chip and the workspace trigger read as one equal row. */
+@media (max-width: 1023px) {
+  .seat {
+    min-height: 40px;
+  }
+}

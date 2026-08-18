@@ -82,4 +82,13 @@ describe('SidebarRoot.module.css', () => {
     // The desktop rail keeps the frozen 36px controls.
     expect(declarations('.collapsed .newSession')?.get('width')).toBe('36px')
   })
+
+  it('also grows the overlay drawer controls to the touch floor on narrow viewports', () => {
+    const media = /@media \(max-width: 1023px\)\s*\{([\s\S]*)$/.exec(css)?.[1] ?? ''
+    expect(media).toContain('.iconButton {')
+    expect(media).toContain('width: 40px')
+    expect(media).toContain('height: 40px')
+    expect(media).toContain('.newSession {')
+    expect(media).toContain('min-height: 40px')
+  })
 })

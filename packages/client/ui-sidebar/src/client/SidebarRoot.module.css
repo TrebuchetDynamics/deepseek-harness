@@ -290,6 +290,17 @@
     width: 44px;
     height: 44px;
   }
+
+  /* The overlay drawer shows the expanded layout: grow its controls to the
+     touch floor too, which the rail-only rule above never reaches. */
+  .iconButton {
+    width: 40px;
+    height: 40px;
+  }
+
+  .newSession {
+    min-height: 40px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

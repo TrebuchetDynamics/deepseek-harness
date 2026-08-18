@@ -363,3 +363,13 @@
 .root[data-phase='settling'] .composerSeat {
   visibility: hidden;
 }
+
+/* Mobile: the hero workspace trigger + preset chip row overflows the
+   composer card's narrow width; wrap so the preset chip drops to its own
+   line instead of clipping at the non-broken viewport edge. */
+@media (max-width: 1023px) {
+  .heroWorkspaceRow {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+}
