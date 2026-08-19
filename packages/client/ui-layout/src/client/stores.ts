@@ -31,6 +31,7 @@ type LayoutActions = {
   setDetails: (draft: LayoutState, px: number) => void
   toggleSidebar: (draft: LayoutState) => void
   closeSidebar: (draft: LayoutState) => void
+  openSidebar: (draft: LayoutState) => void
   setNarrow: (draft: LayoutState, narrow: boolean) => void
   openDetails: (draft: LayoutState) => void
   closeDetails: (draft: LayoutState) => void
@@ -65,6 +66,9 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
         if (d.narrow) d.narrowExpanded = false
         else d.sidebar = 0
       },
+      // The mobile opener (top-left FAB) re-expands the auto-collapsed
+      // sidebar; wide has no floating opener so this is a no-op there.
+      openSidebar: (d) => { if (d.narrow) d.narrowExpanded = true },
       // Crossing the breakpoint in either direction drops the override: the
       // narrow default is auto-collapsed, the wide state is the preference.
       setNarrow: (d, narrow: boolean) => {

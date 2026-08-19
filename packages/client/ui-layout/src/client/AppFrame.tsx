@@ -96,6 +96,8 @@ export function AppFrame({
     return current !== undefined && s.byId[current]?.blank === false ? current : undefined
   })
   const frameRef = useRef<HTMLDivElement | null>(null)
+  const sidebarRef = useRef<HTMLDivElement | null>(null)
+  const fabRef = useRef<HTMLButtonElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
 
   const lastSession = useRef(detailsSession)
@@ -134,12 +136,12 @@ export function AppFrame({
   // (or the default when the wide preference is closed) and the center
   // absorbs the squeeze.
   const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
-  useEffect(() => { actions.setNarrow(narrow) }, [actions, narrow])
+  useLayoutEffect(() => { actions.setNarrow(narrow) }, [actions, narrow])
   const sidebarCollapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0
   const sidebarPreference = sidebarCollapsed
     ? 0
     : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
-  const cols = computeColumns(viewport, sidebarPreference, detailsSession === undefined ? 0 : panels.details)
+  const cols = computeColumns(viewport, sidebarPreference, detailsSession === undefined ? 0 : panels.details, narrow)
   const colsRef = useRef(cols)
   colsRef.current = cols
 
@@ -163,11 +165,20 @@ export function AppFrame({
 
   // Light dismiss of the expanded narrow drawer: the drawer overlays the
   // conversation (center spans every track behind it) under a dimmed backdrop;
-  // tapping the backdrop (or pressing Escape) collapses it back to the rail.
+  // tapping the backdrop (or pressing Escape) fully hides it.
   // Scoped to the narrow expanded state only — the wide desktop layout has no
   // backdrop or keybinding.
   const closeSidebar = useCallback(() => { actions.closeSidebar() }, [actions])
+  const openSidebar = useCallback(() => { actions.openSidebar() }, [actions])
   const sidebarOpen = narrow && !sidebarCollapsed
+  const wasSidebarOpen = useRef(false)
+  useLayoutEffect(() => {
+    const sidebar = sidebarRef.current
+    if (sidebar !== null) sidebar.inert = narrow && sidebarCollapsed
+    if (sidebarOpen && !wasSidebarOpen.current) sidebar?.focus()
+    if (!sidebarOpen && wasSidebarOpen.current) fabRef.current?.focus()
+    wasSidebarOpen.current = sidebarOpen
+  }, [narrow, sidebarCollapsed, sidebarOpen])
   useEffect(() => {
     if (!sidebarOpen) return
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -187,11 +198,17 @@ export function AppFrame({
       data-dragging={dragging || undefined}
       data-drawer={sidebarOpen || undefined}
     >
-      <div className={css.sidebarCol}>
+      <div
+        ref={sidebarRef}
+        className={css.sidebarCol}
+        tabIndex={-1}
+        aria-hidden={narrow && sidebarCollapsed || undefined}
+      >
         {/* Render-site slot call with live concession output: a closed
-            sidebar keeps the mounted slot at the compact-rail width, and the
+            sidebar keeps the mounted slot at the compact-rail width on
+            desktop (or zero on narrow behind a floating opener), and the
             component sees its rendered state as owner params decided here
-            (collapsed follows the resolved rail, so a derived auto-collapse
+            (collapsed follows the resolved width, so a derived auto-collapse
             renders the rail UI too). */}
         {renderSlot('sidebar', {
           collapsed: sidebarCollapsed,
@@ -216,6 +233,18 @@ export function AppFrame({
           overlay layer stays above both at z-index 20. */}
       {narrow && (
         <div className={css.scrim} onClick={closeSidebar} aria-hidden="true" />
+      )}
+      {/* Floating sidebar opener on narrow: with the rail fully hidden only
+          this button draws the sidebar in as a drawer. Hidden while the
+          drawer is open; the backdrop dims the frame without it. */}
+      {narrow && !sidebarOpen && (
+        <button ref={fabRef} type="button" className={css.fab} aria-label="Open sidebar" onClick={openSidebar}>
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <rect x="3" y="6" width="18" height="2.4" rx="1.2" fill="currentColor" />
+            <rect x="3" y="10.8" width="18" height="2.4" rx="1.2" fill="currentColor" />
+            <rect x="3" y="15.6" width="18" height="2.4" rx="1.2" fill="currentColor" />
+          </svg>
+        </button>
       )}
       {/* The collapsed rail is fixed-width and the narrow drawer overlays at the
           contract default: no resize handle in either state. */}

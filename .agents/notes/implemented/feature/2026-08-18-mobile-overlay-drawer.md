@@ -6,6 +6,8 @@ English | [中文](2026-08-18-mobile-overlay-drawer.zh.md)
 
 Supersedes the transparent-scrim rationale of [Mobile sidebar light dismiss](2026-08-18-mobile-sidebar-light-dismiss.md); the tap-outside/Escape mechanism there is unchanged.
 
+Superseded in part by [Mobile FAB sidebar opener](2026-08-18-mobile-fab-sidebar-opener.md): on narrow the closed state is now fully hidden (no 56px rail) behind a floating opener; the drawer overlay behavior here is unchanged.
+
 ## Problem
 
 On narrow viewports the expanded sidebar squeezed the center column to a ~110px sliver at 390px wide instead of overlaying it: the conversation reflowed into a useless sliver beside the drawer, and the light-dismiss backdrop was transparent, so the drawer did not read as modal. A mobile drawer should overlay its surface under a dimmed backdrop (the standard navigation-drawer pattern).

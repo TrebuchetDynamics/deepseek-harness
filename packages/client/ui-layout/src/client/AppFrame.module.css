@@ -159,3 +159,28 @@
   opacity: 1;
   pointer-events: auto;
 }
+
+/* Floating sidebar opener (mobile): with the rail fully hidden, this button
+   draws the sidebar in as a drawer. Positioned top-left, above the column
+   content but below the drawer backdrop and the shell overlay layer, and
+   hidden while the drawer is open. */
+.fab {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: calc(env(safe-area-inset-left, 0px) + 12px);
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 50%;
+  background: var(--dsw-alias-button-floating-fill);
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.fab:hover {
+  background: var(--dsw-alias-button-floating-hover);
+}

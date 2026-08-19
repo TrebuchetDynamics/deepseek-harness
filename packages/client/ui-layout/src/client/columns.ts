@@ -4,10 +4,12 @@
  * details, then auto-closing it (derived zero width — preferred width
  * preferences are never rewritten, so widening the window restores them).
  * The sidebar never concedes: its rendered width is always the drag
- * preference (or the collapsed rail), and center absorbs any remaining
+ * preference (or a closed-state zero), and center absorbs any remaining
  * deficit as the last resort. Inputs are the layout store's plain width
  * preferences (0 = closed); a closed sidebar resolves to the fixed
- * SIDEBAR_COLLAPSED control rail while closed details resolve to zero width.
+ * SIDEBAR_COLLAPSED control rail on desktop, or to zero when narrow=true
+ * (mobile hides the rail entirely behind a floating opener), while closed
+ * details always resolve to zero width.
  * The SIDEBAR_AUTO_COLLAPSE breakpoint is consumed by AppFrame, which decides
  * the effective sidebar preference before solving; the solver itself stays
  * breakpoint-free.
@@ -57,11 +59,16 @@ export function clampWidth(px: number, min: number, max: number): number {
  * @param viewport - available frame width in px.
  * @param sidebar - sidebar width preference in px (0 = closed).
  * @param details - details width preference in px (0 = closed).
- * @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail.
+ * @param narrow - true hides the closed-state rail (mobile): a 0 preference resolves to 0 width.
+ * @returns resolved widths; details 0 means visually closed (never unmounted);
+ * a closed sidebar is the compact rail on desktop, zero when narrow.
  */
-export function computeColumns(viewport: number, sidebar: number, details: number): Columns {
-  // The sidebar is fixed at its preference (or the rail) — it never concedes.
-  const s = sidebar === 0 ? SIDEBAR_COLLAPSED : clampWidth(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
+export function computeColumns(viewport: number, sidebar: number, details: number, narrow = false): Columns {
+  // The sidebar is fixed at its preference (the rail when closed on desktop, or
+  // zero on narrow where the opener floats) — it never concedes.
+  const s = sidebar === 0
+    ? (narrow ? 0 : SIDEBAR_COLLAPSED)
+    : clampWidth(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
   const d0 = details === 0 ? 0 : clampWidth(details, DETAILS_MIN, DETAILS_MAX)
 
   // Step 1: everything fits at preferred widths.

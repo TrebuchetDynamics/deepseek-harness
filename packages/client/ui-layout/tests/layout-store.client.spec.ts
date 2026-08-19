@@ -83,6 +83,27 @@ describe('createLayoutStore', () => {
     expect(store.getSnapshot().sidebar).toBe(0)
   })
 
+  it('openSidebar expands the narrow override and is a no-op wide', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setNarrow(true)
+    actions.openSidebar()
+    expect(store.getSnapshot().narrowExpanded).toBe(true)
+    // Re-opening an open drawer keeps it open.
+    actions.openSidebar()
+    expect(store.getSnapshot().narrowExpanded).toBe(true)
+    // Close then re-open restores the override.
+    actions.closeSidebar()
+    actions.openSidebar()
+    expect(store.getSnapshot().narrowExpanded).toBe(true)
+    // Wide has no floating opener: openSidebar leaves the preference alone.
+    const wide = createLayoutStore().create()
+    wide.actions.setSidebar(400)
+    wide.actions.openSidebar()
+    expect(wide.store.getSnapshot()).toEqual({
+      sidebar: 400, details: 0, narrow: false, narrowExpanded: false,
+    })
+  })
+
   it('crossing the breakpoint drops the override; a same-value setNarrow keeps it', () => {
     const { store, actions } = createLayoutStore().create()
     actions.setNarrow(true)

@@ -4,14 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  onTestFailed,
-} from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
   assertFixtureInventory,
   compareOrRefreshGolden,
@@ -107,7 +100,18 @@ describe('web e2e: mobile sidebar drawer', () => {
 
   it('keeps the conversation in the first row behind the drawer', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-mobile-sidebar-drawer'))
-    await page.getByRole('button', { name: 'Open sidebar' }).click()
+    const opener = page.getByRole('button', { name: 'Open sidebar' })
+    await opener.waitFor({ timeout: 10_000 })
+    expect(
+      await page.locator('[class*="sidebarCol"]').evaluate((sidebar) => {
+        const element = sidebar as HTMLElement
+        return {
+          inert: element.inert,
+          ariaHidden: element.getAttribute('aria-hidden'),
+        }
+      }),
+    ).toEqual({ inert: true, ariaHidden: 'true' })
+    await opener.click()
     await page.locator('[data-drawer]').waitFor({ timeout: 10_000 })
     await expect
       .poll(
@@ -129,6 +133,13 @@ describe('web e2e: mobile sidebar drawer', () => {
       renderGeometry(metrics),
       MODE,
     )
+    await page.keyboard.press('Escape')
+    await expect.poll(() => page.locator('[data-drawer]').count()).toBe(0)
+    expect(
+      await page.evaluate(() =>
+        document.activeElement?.getAttribute('aria-label'),
+      ),
+    ).toBe('Open sidebar')
     expect(tripwire.pageErrors).toEqual([])
   })
 

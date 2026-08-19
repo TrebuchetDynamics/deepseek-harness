@@ -93,3 +93,19 @@ describe('computeColumns — degenerate viewports', () => {
       .toEqual({ sidebar: SIDEBAR_COLLAPSED, center: 500 - SIDEBAR_COLLAPSED, details: 0 })
   })
 })
+
+describe('computeColumns — narrow full-collapse (no rail)', () => {
+  it('a closed sidebar resolves to zero width on narrow, leaving all space to center', () => {
+    expect(computeColumns(980, closed(300), closed(360), true))
+      .toEqual({ sidebar: 0, center: 980, details: 0 })
+  })
+
+  it('an open sidebar keeps its preference width on narrow', () => {
+    expect(computeColumns(980, open(SIDEBAR_DEFAULT), closed(360), true).sidebar)
+      .toBe(SIDEBAR_DEFAULT)
+  })
+
+  it('narrow=false (default) keeps the desktop rail for a closed sidebar', () => {
+    expect(computeColumns(980, closed(300), closed(360)).sidebar).toBe(SIDEBAR_COLLAPSED)
+  })
+})
