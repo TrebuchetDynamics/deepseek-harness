@@ -19,8 +19,16 @@
 #   TS_HOSTNAME=dsh
 #   TS_EXTRA_ARGS=
 #   DSH_HOST_USER_HOME=/home/xel      # bind the host user's files at the same path
+#   DSH_HOST_WORKSPACE=                # agent working directory (run-docker.sh derives it)
 #   DSH_HOST_FLUTTER_HOME=             # Flutter SDK path (run-docker.sh derives it)
+#   DSH_HOST_ANDROID_HOME=             # Android SDK path (run-docker.sh derives it)
 #   DSH_HOST_JAVA_HOME=                # host JDK path (run-docker.sh derives it)
+#
+# Toolchain paths are optional: an empty value leaves the container without
+# that toolchain. run-docker.sh additionally generates a per-launch override
+# file mounting the JDK (read-only), the Android SDK, out-of-home Flutter and
+# repository paths, udev state, and the USB bus — only when they exist on the
+# host, because Compose cannot express a conditional bind mount.
 #
 # The app binds loopback only; Tailscale (inside the image when TS_AUTHKEY is
 # set, or on the host in host mode) serves it over the tailnet.
@@ -37,25 +45,21 @@ services:
       - DSH_TELEGRAM_BOT_TOKEN=${DSH_TELEGRAM_BOT_TOKEN:-}
       - DSH_HOME=${DSH_HOST_USER_HOME:-/home/xel}/.dsh
       - DSH_PORT=${DSH_BACKEND_PORT:-4081}
-      - DSH_WORKSPACE=${DSH_HOST_USER_HOME:-/home/xel}/git
+      - DSH_WORKSPACE=${DSH_HOST_WORKSPACE:-${DSH_HOST_USER_HOME:-/home/xel}/git}
       - DSH_REPO=${DSH_REPO:-/home/xel/git/deepseek/deepseek-harness}
       - DSH_TRUSTED_HOSTS=${DSH_TRUSTED_HOSTS:-}
       - HOME=${DSH_HOST_USER_HOME:-/home/xel}
-      - ANDROID_HOME=/usr/lib/android-sdk
-      - ANDROID_SDK_ROOT=/usr/lib/android-sdk
-      - JAVA_HOME=${DSH_HOST_JAVA_HOME:-/home/xel/.sdkman/candidates/java/current}
-      - FLUTTER_ROOT=${DSH_HOST_FLUTTER_HOME:-${DSH_HOST_USER_HOME:-/home/xel}/flutter}
+      - ANDROID_HOME=${DSH_HOST_ANDROID_HOME:-}
+      - ANDROID_SDK_ROOT=${DSH_HOST_ANDROID_HOME:-}
+      - JAVA_HOME=${DSH_HOST_JAVA_HOME:-}
+      - FLUTTER_ROOT=${DSH_HOST_FLUTTER_HOME:-}
       - ADB_SERVER_SOCKET=tcp:127.0.0.1:5037
-      - PATH=${DSH_HOST_FLUTTER_HOME:-${DSH_HOST_USER_HOME:-/home/xel}/flutter}/bin:/usr/lib/android-sdk/platform-tools:${DSH_HOST_JAVA_HOME:-/home/xel/.sdkman/candidates/java/current}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - PATH=${DSH_HOST_FLUTTER_HOME:-${DSH_HOST_USER_HOME:-/home/xel}/flutter}/bin:${DSH_HOST_ANDROID_HOME:-${DSH_HOST_USER_HOME:-/home/xel}/Android/Sdk}/platform-tools:${DSH_HOST_JAVA_HOME:-${DSH_HOST_USER_HOME:-/home/xel}/.sdkman/candidates/java/current}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - TS_AUTHKEY=${TS_AUTHKEY:-}
       - TS_HOSTNAME=${TS_HOSTNAME:-dsh}
       - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:-}
     volumes:
       - ${DSH_HOST_USER_HOME:-/home/xel}:${DSH_HOST_USER_HOME:-/home/xel}
-      - ${DSH_HOST_JAVA_HOME:-/home/xel/.sdkman/candidates/java/current}:${DSH_HOST_JAVA_HOME:-/home/xel/.sdkman/candidates/java/current}:ro
-      - /usr/lib/android-sdk:/usr/lib/android-sdk
-      - /run/udev:/run/udev:ro
-      - /dev/bus/usb:/dev/bus/usb
       - tsstate:/var/lib/tailscale # reuses your tailnet node identity
 
   auth-proxy:

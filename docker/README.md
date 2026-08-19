@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-This personal-fork utility runs the published DeepSeek Harness Web GUI (`dsh web`) in a container with the host's repositories, Flutter, Android, Java, and USB device access.
+This personal-fork utility runs the published DeepSeek Harness Web GUI (`dsh web`) in a container with the host's repositories and, when installed on the host, Flutter, Android, Java, and USB device access.
 
 ## Why loopback + Tailscale
 
@@ -20,7 +20,7 @@ The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not
 | `dsh-entrypoint.sh`  | Starts `dsh web`, exposes mounted toolchains, and optionally joins a container-owned tailnet node |
 | `docker-compose.yml` | Host-network composition, host development mounts, USB access, and proxy                          |
 | `Caddyfile`          | Loopback identity proxy for owner-only configuration RPCs                                         |
-| `../run-docker.sh`   | Validates the host, builds, starts, verifies, and publishes the composition                       |
+| `../run-docker.sh`   | Discovers host toolchains, builds, starts, verifies, and publishes the composition                |
 | `../.dockerignore`   | Excludes unnecessary build-context files                                                          |
 | `browser-e2e/`       | Reproducible Chromium runtime for the web browser e2e lane (`pnpm run test:web`)                   |
 | `browser-e2e/run.sh` | Builds that runtime and runs the lane against the current checkout                                 |
@@ -37,12 +37,10 @@ The image installs the published `@deepseek-ai/dsh` package, its runtime peers, 
 
 The launcher requires:
 
-- a host already logged into Tailscale;
-- repositories under `$HOME/git`;
-- a Flutter executable on `PATH`;
-- Android platform tools at `/usr/lib/android-sdk/platform-tools/adb`;
-- a Java executable on `PATH`; and
-- Docker Compose, Node.js, and curl.
+- a host already logged into Tailscale; and
+- Docker, Node.js, and curl on `PATH`.
+
+The development toolchains are optional. The launcher discovers Flutter and Java from `PATH`, and the Android SDK from `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Android/Sdk`, `~/android-sdk`, `/usr/lib/android-sdk`, or `/opt/android-sdk`. A missing toolchain prints a warning and launches without it: the container then has no `flutter`, `adb`, or `java`, and no related mounts. An override that names a path without the expected executable (`DSH_HOST_FLUTTER_HOME`, `DSH_HOST_ANDROID_HOME`, `DSH_HOST_JAVA_HOME`) is skipped the same way.
 
 Allow the current user to manage Tailscale Serve once if required:
 
@@ -57,11 +55,11 @@ export DEEPSEEK_API_KEY=sk-...   # optional until a model request
 ./run-docker.sh
 ```
 
-The launcher derives `DSH_HOST_FLUTTER_HOME` and `DSH_HOST_JAVA_HOME` from the host executables, reads the host's MagicDNS name, tailnet IPv4, and login from `tailscale status`, builds the image, starts both loopback services, and verifies that an unrelated login receives HTTP 403 while the owner receives HTTP 200. It trusts the MagicDNS name and the tailnet IPv4 at the harness browser-trust fences and publishes `https://<host>.<tailnet>.ts.net/` only after those checks pass.
+The launcher derives `DSH_HOST_FLUTTER_HOME`, `DSH_HOST_ANDROID_HOME`, and `DSH_HOST_JAVA_HOME` from the discovered toolchains (printing one summary line), reads the host's MagicDNS name, tailnet IPv4, and login from `tailscale status`, builds the image, starts both loopback services, and verifies that an unrelated login receives HTTP 403 while the owner receives HTTP 200. It trusts the MagicDNS name and the tailnet IPv4 at the harness browser-trust fences and publishes `https://<host>.<tailnet>.ts.net/` only after those checks pass.
 
-The host home is mounted read-write at the same path inside the container, the host JDK is mounted read-only, and the Android SDK, udev data, and USB bus are mounted for device builds. The entrypoint links `flutter`, `dart`, `adb`, and `java` into `/usr/local/bin` because login shells may reset `PATH`.
+The host home is mounted read-write at the same path inside the container. The launcher also writes a per-launch Compose override file mounting the JDK read-only, plus the Android SDK, the repository, udev data, and the USB bus — each only when it exists on the host, because Compose cannot express a conditional bind mount and would otherwise let the daemon create an empty root-owned directory at the missing path. Toolchains that already live under the mounted home need no extra mount. The entrypoint links `flutter`, `dart`, `adb`, and `java` into `/usr/local/bin` when their SDKs are available, because login shells may reset `PATH`.
 
-Set `DSH_HOST_USER_HOME` when the host home is not `$HOME`, `DSH_HOST_FLUTTER_HOME` to override Flutter discovery, and `DSH_HOST_JAVA_HOME` to override Java discovery.
+Set `DSH_HOST_USER_HOME` when the host home is not `$HOME`, `DSH_HOST_WORKSPACE` to override the agent working directory (default `$HOME/git`, falling back to `$HOME` with a warning), and `DSH_HOST_FLUTTER_HOME`, `DSH_HOST_ANDROID_HOME`, or `DSH_HOST_JAVA_HOME` to override toolchain discovery.
 
 ## Run as a separate tailnet node
 
@@ -79,6 +77,8 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 The entrypoint starts its bundled `tailscaled`, derives that node's MagicDNS name, adds it as a trusted host, and serves HTTPS from the container-owned tailnet node. The `tsstate` volume retains the node identity. The Caddy service remains a loopback endpoint but is not the serving path in this mode.
 
+A direct Compose invocation skips the launcher-generated override file, so it mounts only the host home: toolchains outside `$HOME` (a JDK, the Android SDK, udev, USB) are unavailable inside the container until you add their mounts yourself or run `./run-docker.sh`.
+
 ## Environment reference
 
 | Variable                | Default                 | Meaning                                                       |
@@ -88,8 +88,10 @@ The entrypoint starts its bundled `tailscaled`, derives that node's MagicDNS nam
 | `DSH_PUBLIC_PORT`       | `4080`                  | Host loopback port for Caddy and Tailscale Serve              |
 | `DSH_BACKEND_PORT`      | `4081`                  | Host loopback port for `dsh web`                              |
 | `DSH_HOST_USER_HOME`    | `$HOME` in the launcher | Host home mounted read-write at the same container path       |
-| `DSH_HOST_FLUTTER_HOME` | derived from `flutter`  | Flutter SDK path available inside the mounted host home       |
-| `DSH_HOST_JAVA_HOME`    | derived from `java`     | Host JDK mounted read-only at the same container path         |
+| `DSH_HOST_WORKSPACE`    | `$HOME/git`, else `$HOME` | Agent working directory inside the container              |
+| `DSH_HOST_FLUTTER_HOME` | derived from `flutter` on `PATH` | Flutter SDK path; empty when absent, leaving the container without Flutter |
+| `DSH_HOST_ANDROID_HOME` | discovered (see Host requirements) | Android SDK path; empty when absent, leaving the container without `adb` |
+| `DSH_HOST_JAVA_HOME`    | derived from `java` on `PATH` | Host JDK path; empty when absent, leaving the container without Java |
 | `DSH_TRUSTED_HOSTS`     | _(unset)_               | Additional API authorities appended to the host MagicDNS name and tailnet IPv4 (both pre-filled by the launcher) |
 | `TAILSCALE_OWNER`       | host Tailscale login    | Login allowed to use owner-only RPC paths through Caddy       |
 | `TS_AUTHKEY`            | _(unset)_               | Auth key enabling the container-owned-node mode               |
