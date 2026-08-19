@@ -19,6 +19,7 @@ import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { PendingSteeringBubble } from './MessageItem.tsx'
 import { ChatNodeSeat } from './ChatNodeSeat.tsx'
 import { formatRunDuration } from './message-chrome.ts'
+import { attachChatZoom } from './chat-zoom.ts'
 import css from './ChatView.module.css'
 
 const FOLLOW_THRESHOLD = 24
@@ -168,6 +169,15 @@ export function ChatView({
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const columnRef = useRef<HTMLDivElement | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+
+  // Pinch and ctrl+wheel scale only this transcript (see chat-zoom.ts); the
+  // effect is inert when the root is not mounted.
+  useLayoutEffect(() => {
+    const el = rootRef.current
+    if (el === null) return
+    return attachChatZoom(el)
+  }, [])
   const atBottomRef = useRef(true)
   const [atBottom, setAtBottom] = useState(true)
   /** Last position delivered or written on the main thread. */
@@ -363,7 +373,7 @@ export function ChatView({
   }
 
   return (
-    <div className={css.root}>
+    <div ref={rootRef} className={css.root}>
       <div ref={listRef} className={css.scroll}>
         <div ref={columnRef} className={css.column} data-chat-flow="">
           {openState === 'loading' && <div className={css.hint}>{t('chat.loadingHistory')}</div>}

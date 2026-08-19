@@ -9,6 +9,10 @@
   flex-direction: column;
   min-height: 0;
   flex: 1 1 auto;
+  /* Pinch/ctrl+wheel sets --dsh-chat-font-scale on this element (ChatView
+     only, so the composer, sidebar, and chrome stay fixed); zoom scales the
+     whole transcript box, not just em/rem text. */
+  zoom: var(--dsh-chat-font-scale);
 }
 
 .scroll {
