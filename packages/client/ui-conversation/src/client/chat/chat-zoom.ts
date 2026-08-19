@@ -23,7 +23,13 @@ export const CHAT_ZOOM_VAR = '--dsh-chat-font-scale'
 /** Exponential smoothing constant mapping wheel deltas to scale steps. */
 const ZOOM_SMOOTHING = 200
 
-/** Clamp a scale to a range, defaulting to the module bounds. */
+/**
+ * Clamp a scale to a range, defaulting to the module bounds.
+ * @param scale - candidate scale.
+ * @param min - inclusive lower bound.
+ * @param max - inclusive upper bound.
+ * @returns the scale clamped into `[min, max]`.
+ */
 export function clampZoom(
   scale: number,
   min = CHAT_ZOOM_MIN,
@@ -32,12 +38,20 @@ export function clampZoom(
   return Math.min(max, Math.max(min, scale))
 }
 
-/** Apply a wheel delta to a scale: zoom in on negative deltaY, out on positive. */
+/**
+ * Apply a wheel delta to a scale: zoom in on negative deltaY, out on positive.
+ * @param scale - current scale.
+ * @param deltaY - wheel delta; negative zooms in.
+ * @returns the smoothed scale clamped to the module bounds.
+ */
 export function stepZoom(scale: number, deltaY: number): number {
   return clampZoom(scale * Math.exp(-deltaY / ZOOM_SMOOTHING))
 }
 
-/** Read the persisted scale, falling back to 1 when missing or unreadable. */
+/**
+ * Read the persisted scale, falling back to 1 when missing or unreadable.
+ * @returns the stored scale clamped to the module bounds, or 1.
+ */
 export function loadChatZoom(): number {
   /* v8 ignore next -- localStorage is always present in the browser/jsdom. */
   if (typeof localStorage === 'undefined') return 1
@@ -52,7 +66,10 @@ export function loadChatZoom(): number {
   }
 }
 
-/** Persist a scale, rounding to two decimals to keep storage and style clean. */
+/**
+ * Persist a scale, rounding to two decimals to keep storage and style clean.
+ * @param scale - scale to persist; clamped and rounded before storing.
+ */
 export function saveChatZoom(scale: number): void {
   /* v8 ignore next -- localStorage is always present in the browser/jsdom. */
   if (typeof localStorage === 'undefined') return
@@ -68,6 +85,7 @@ export function saveChatZoom(scale: number): void {
   }
 }
 
+/** Options overriding how {@link attachChatZoom} loads and persists the scale. */
 export interface AttachChatZoomOptions {
   /** Scale loader override, for tests and alternate persistence. */
   readonly load?: () => number

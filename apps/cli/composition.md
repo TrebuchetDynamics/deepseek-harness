@@ -24,8 +24,8 @@ flowchart LR
   cfg --> plugin_dsh_base_typert_gateway
   plugin_dsh_base_session_title["session-title<br/>@deepseek-ai/dsh-session-title"]
   cfg --> plugin_dsh_base_session_title
-  plugin_dsh_base_session_title_llm["session-title-llm<br/>@deepseek-ai/dsh-session-title-first-prompt-llm"]
-  cfg --> plugin_dsh_base_session_title_llm
+  plugin_dsh_base_session_title_latest_message["session-title-latest-message<br/>@deepseek-ai/dsh-session-title-latest-message"]
+  cfg --> plugin_dsh_base_session_title_latest_message
   plugin_dsh_base_user_questions["user-questions<br/>@deepseek-ai/dsh-user-questions"]
   cfg --> plugin_dsh_base_user_questions
   plugin_dsh_base_agent["agent<br/>@deepseek-ai/dsh-agent"]
@@ -176,7 +176,7 @@ flowchart LR
 | `typert-loader` | `@deepseek-ai/dsh-typert-loader` |
 | `typert-gateway` | `@deepseek-ai/dsh-api-gateway` |
 | `session-title` | `@deepseek-ai/dsh-session-title` |
-| `session-title-llm` | `@deepseek-ai/dsh-session-title-first-prompt-llm` |
+| `session-title-latest-message` | `@deepseek-ai/dsh-session-title-latest-message` |
 | `user-questions` | `@deepseek-ai/dsh-user-questions` |
 | `agent` | `@deepseek-ai/dsh-agent` |
 | `agent-default-model` | `@deepseek-ai/dsh-agent-default-model` |
