@@ -22,6 +22,8 @@ Harness 的 `--trusted-host` 选项是 DNS rebinding 与跨站栅栏，而不是
 | `Caddyfile`          | 为仅限属主的配置 RPC 提供回环身份代理                                   |
 | `../run-docker.sh`   | 验证宿主、构建、启动、检查并发布组合                                    |
 | `../.dockerignore`   | 排除不需要的构建上下文文件                                              |
+| `browser-e2e/`       | Web 浏览器 e2e 车道（`pnpm run test:web`）的可重现 Chromium 运行时      |
+| `browser-e2e/run.sh` | 构建该运行时并针对当前检出运行车道                                      |
 
 ## 构建
 

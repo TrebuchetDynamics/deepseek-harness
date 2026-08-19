@@ -35,3 +35,17 @@ harness 的用途，且这两个包本来就在 Host 图中。另外，chat 场�
 偶然而非保证——一旦它离开该图，就像其余情形那样镜像该 helper。
 
 没有任何机制强制这条规则；靠 review 守住它。
+
+## 在 Docker 中运行
+
+没有可用 Chromium 的主机——通常是免 root 的开发容器——可以改经可重现的
+`docker/browser-e2e` 镜像运行本车道：
+
+```sh
+docker/browser-e2e/run.sh --privileged
+```
+
+镜像是内嵌精确 lockfile Chromium 及其 OS 依赖；包装脚本绑定当前检出、安装、构建，
+并以 `replay` 模式运行车道。显式特权用于运行嵌套沙箱测试。参见
+[docker/browser-e2e](../../../docker/browser-e2e/README.md) 了解 `record` /
+`refresh` 模式、按需开启的主机访问旗标以及专属 CI 作业。

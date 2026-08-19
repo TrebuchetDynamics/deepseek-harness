@@ -38,6 +38,7 @@ services:
       - DSH_HOME=${DSH_HOST_USER_HOME:-/home/xel}/.dsh
       - DSH_PORT=${DSH_BACKEND_PORT:-4081}
       - DSH_WORKSPACE=${DSH_HOST_USER_HOME:-/home/xel}/git
+      - DSH_REPO=${DSH_REPO:-/home/xel/git/deepseek/deepseek-harness}
       - DSH_TRUSTED_HOSTS=${DSH_TRUSTED_HOSTS:-}
       - HOME=${DSH_HOST_USER_HOME:-/home/xel}
       - ANDROID_HOME=/usr/lib/android-sdk

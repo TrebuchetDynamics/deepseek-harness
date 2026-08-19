@@ -10,6 +10,10 @@ flock 9
 export DSH_PUBLIC_PORT="${DSH_PUBLIC_PORT:-4080}"
 export DSH_BACKEND_PORT="${DSH_BACKEND_PORT:-4081}"
 export DSH_HOST_USER_HOME="${DSH_HOST_USER_HOME:-$HOME}"
+# Boot the checkout this script lives in, not the published @deepseek-ai/dsh:
+# the container entrypoint runs ${DSH_REPO}'s `pnpm dsh`, so working-tree changes
+# (base bundle, plugins) take effect on relaunch without an npm release.
+export DSH_REPO="${DSH_REPO:-$PWD}"
 [ -d "$DSH_HOST_USER_HOME/git" ] || { echo "error: repository directory not found: $DSH_HOST_USER_HOME/git" >&2; exit 1; }
 if [ -z "${DSH_HOST_FLUTTER_HOME:-}" ]; then
   flutter_bin="$(command -v flutter)" || { echo "error: Flutter executable not found on PATH" >&2; exit 1; }

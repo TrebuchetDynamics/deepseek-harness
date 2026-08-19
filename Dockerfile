@@ -1,14 +1,19 @@
 # syntax=docker/dockerfile:1
 
-# DeepSeek Harness as a container: installs the published dsh CLI from npm and
-# runs the browser UI (dsh web) bound to loopback. When TS_AUTHKEY is set, the
-# entrypoint also joins the tailnet as its own node and serves :443 over it via
-# 'tailscale serve'. The no-key alternative is --network host plus the host's
-# own tailscaled doing the serving (see docker/README.md).
+# DeepSeek Harness as a container: runs the browser UI (dsh web) bound to
+# loopback. The entrypoint boots the mounted DeepSeek Harness checkout via its
+# own `pnpm dsh` when DSH_REPO is set, so working-tree changes —
+# base bundle patches, plugins — take effect on relaunch without a release.
+# When TS_AUTHKEY is set, the entrypoint also joins the tailnet as its own node
+# and serves :443 over it via 'tailscale serve'. The no-key alternative is
+# --network host plus the host's own tailscaled doing the serving (see
+# docker/README.md).
 #
 # DSH_VERSION tracks the fork's pinned release (bump it together with the
-# upstream sync). The image uses published packages instead of compiling the
-# monorepo, so it stays small and builds quickly even on slow uplinks.
+# upstream sync). The image installs pnpm and the published CLI; the entrypoint
+# boots the checkout via its own `pnpm dsh` when DSH_REPO points at one and
+# falls back to the published CLI otherwise, keeping builds small and quick
+# even on slow uplinks.
 
 ARG DSH_VERSION=0.1.0-rc.7
 ARG PNPM_VERSION=11.7.0

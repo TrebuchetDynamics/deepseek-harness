@@ -1,0 +1,77 @@
+name: Browser e2e (Docker)
+
+# Reproducible-Docker proof of the real-browser web e2e lane (`pnpm run
+# test:web`), complementing the native browser-snapshot gate in ci.yml. The two
+# diverge intentionally: this job exercises the exact container image that
+# contributors use (`docker/browser-e2e`, which ships the lockfile Chromium plus
+# its OS deps), so it is the canary for the reproducible-Docker runtime itself —
+# a broken Dockerfile, a drifted Playwright/Chromium pair, or a missing OS dep
+# fails here first. Nested sandbox checks require a privileged container, so
+# this trusted-branch canary never runs pull-request code. It is keyless and
+# never records or refreshes goldens, matching the policy recorded in
+# .agents/notes/implemented/testing/2026-07-30-web-browser-snapshot-ci-gate.md.
+#
+# The lane targets POSIX and this job runs Linux only, matching ci.yml's web
+# gate. Because it must prove the Docker path works, it does not reuse the
+# native consumer job's build — it builds and runs inside the container.
+#
+# SECURITY — this job runs a privileged container and therefore stays limited
+# to trusted branch pushes, schedules, and explicit dispatches. The native web
+# gate in ci.yml remains the pull-request gate.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+  schedule:
+    # 00:41 UTC nightly = 08:41 Asia/Shanghai; off the top-of-hour stampede.
+    - cron: "41 0 * * *"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DSH_TELEMETRY_DISABLED: "1"
+  IMAGE: dsh-browser-e2e:ci-${{ github.sha }}
+
+jobs:
+  browser-e2e-docker:
+    runs-on: ubuntu-latest
+    name: browser e2e (Docker)
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      # Build the toolchain image and persist its pnpm/Chromium provisioning
+      # layer across runs with the GitHub-hosted layer cache; `load` keeps the
+      # image in the local daemon for the `docker run` step below. The rebuild
+      # is cheap once the lockfile-keyed provision layer is cached.
+      - name: Build docker/browser-e2e image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: docker/browser-e2e/Dockerfile
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run browser e2e (Docker, keyless replay)
+        run: |
+          docker run --rm --privileged \
+            --user "$(id -u):$(id -g)" \
+            --volume "$PWD:/workspace" --workdir /workspace \
+            --env CI=true \
+            --env DSH_SNAPSHOT=replay \
+            --env DSH_TELEMETRY_DISABLED=1 \
+            --env HOME=/tmp \
+            --env PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
+            --env PNPM_CONFIG_STORE_DIR=/tmp/pnpm-store \
+            "$IMAGE" \
+            sh -c "pnpm install --frozen-lockfile && pnpm run test:web"

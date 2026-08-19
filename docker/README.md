@@ -22,6 +22,8 @@ The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not
 | `Caddyfile`          | Loopback identity proxy for owner-only configuration RPCs                                         |
 | `../run-docker.sh`   | Validates the host, builds, starts, verifies, and publishes the composition                       |
 | `../.dockerignore`   | Excludes unnecessary build-context files                                                          |
+| `browser-e2e/`       | Reproducible Chromium runtime for the web browser e2e lane (`pnpm run test:web`)                   |
+| `browser-e2e/run.sh` | Builds that runtime and runs the lane against the current checkout                                 |
 
 ## Build
 

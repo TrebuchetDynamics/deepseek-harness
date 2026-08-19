@@ -44,3 +44,18 @@ That reachability is incidental, not a guarantee — if it ever leaves the graph
 mirror the helper like the rest.
 
 Nothing mechanically enforces this rule; keep it in review.
+
+## Running in Docker
+
+A host without a working Chromium — typically a no-root devcontainer — can run
+this lane through the reproducible `docker/browser-e2e` image instead:
+
+```sh
+docker/browser-e2e/run.sh --privileged
+```
+
+The image carries the exact lockfile Chromium plus its OS dependencies; the
+wrapper binds the current checkout, installs, builds, and runs the lane in
+`replay` mode. The explicit privilege is required by the nested sandbox tests. See
+[docker/browser-e2e](../../../docker/browser-e2e/README.md) for the `record` /
+`refresh` modes, the opt-in host-access flags, and the dedicated CI job.

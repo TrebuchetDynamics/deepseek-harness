@@ -17,3 +17,4 @@ coverage
 .gitattributes
 .gitlab-ci.yml
 .gitmodules
+.env*

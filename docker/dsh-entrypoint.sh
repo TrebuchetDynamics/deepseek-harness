@@ -16,6 +16,8 @@
 #                     0 prefers the kernel tun when /dev/net/tun exists
 #   DSH_PORT          web UI listen port (default 3080)
 #   DSH_WORKSPACE     agent working directory (default /workspace)
+#   DSH_REPO          optional DeepSeek Harness checkout to boot via its own
+#                     `pnpm dsh`; otherwise use the published CLI
 #   DSH_TRUSTED_HOSTS extra /api authorities (space or comma separated),
 #                     appended to the derived tailnet hostname
 #
@@ -98,7 +100,16 @@ done
 [[ -x "${ANDROID_HOME:-}/platform-tools/adb" ]] && ln -sf "$ANDROID_HOME/platform-tools/adb" /usr/local/bin/adb
 [[ -x "${JAVA_HOME:-}/bin/java" ]] && ln -sf "$JAVA_HOME/bin/java" /usr/local/bin/java
 
-cd "$DSH_WORKSPACE"
-echo "dsh web on http://127.0.0.1:$DSH_PORT (loopback)"
+# Boot the checkout when DSH_REPO points at one (its root package.json runs a
+# `dsh` script); otherwise fall back to the published CLI.
+if [[ -n "${DSH_REPO:-}" ]] && [[ -f "$DSH_REPO/package.json" ]] \
+  && grep -qE '"dsh"[[:space:]]*:' "$DSH_REPO/package.json"; then
+  cd "$DSH_REPO"
+  DSH_LAUNCH=(pnpm dsh)
+else
+  cd "$DSH_WORKSPACE"
+  DSH_LAUNCH=(dsh)
+fi
+echo "dsh web on http://127.0.0.1:$DSH_PORT (loopback) from $(pwd)"
 exec setpriv --reuid=1000 --regid=1000 --init-groups \
-  dsh "${DSH_ARGS[@]}"
+  "${DSH_LAUNCH[@]}" "${DSH_ARGS[@]}"
