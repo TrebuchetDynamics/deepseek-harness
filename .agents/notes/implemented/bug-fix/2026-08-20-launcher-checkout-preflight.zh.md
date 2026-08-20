@@ -12,7 +12,7 @@ Status: implemented
 
 启动器为自己制造的先决条件负责：既然是它启动检出，它就在构建或启动任何东西之前校验检出可启动。在 `DSH_REPO` 存在性检查之后，一次 `node -e` 预检依次测试：`node_modules` 存在（否则"运行 `pnpm install`"）、`apps/web/dist/index.html` 存在（否则"运行 `pnpm run build`"）、以及每个 manifest 携带 `dsh.client` 块的 `packages/client/*` 包都有 `lib/client.js`（否则"运行 `pnpm run build`"并点名缺失的包——正是缺失时会导致启动崩溃的那批）。任何发现都以 `error:` 命名仓库路径与确切命令后退出；就绪的检出不输出任何内容。
 
-之前藏在容器日志里的失败也被直接呈现：当回环代理在就绪窗口内没有出现时，启动器先倾倒 `dsh` 服务日志的最后 30 行再退出。窗口本身从 10 次一秒尝试扩大到 45 次——冷启动的 `pnpm dsh`（tsx 编译整个检出）加上健康检查门槛在较慢的机器上可能超过 10 秒，否则即使没有崩溃也会得到同样的"proxy did not start"死胡同。
+藏在 Compose 依赖消息后的失败会被直接呈现。当 `compose up` 失败、健康检查门控的代理错过可配置的就绪期限，或任一身份检查请求失败时，启动器先打印 `compose ps -a` 以及 `dsh` 与 `auth-proxy` 的最后 30 行日志再退出；HTTP 策略不匹配时会报告两个实际状态码。`DSH_STARTUP_TIMEOUT` 默认为 90 秒，使冷启动的 `pnpm dsh` 加 20 秒启动期和 30 秒健康检查间隔不会再与固定的 10 秒期限竞争。
 
 ## 考虑过的替代方案
 
@@ -26,6 +26,6 @@ Status: implemented
 
 ## 后果
 
-全新克隆现在会在任何镜像构建之前得到 `error: <repo> is not ready to boot: run 'pnpm install' there first`；合并后的树得到同样对待并点名缺失的 client 包；两者之后执行 `pnpm install && pnpm run build && ./run-docker.sh` 即可正常完成（在原机器上针对 rc.8 合并状态验证：合并前复现崩溃，构建后返回 HTTP 200）。stub 宿主套件增长到 105 条断言，新增三个场景——未安装、无 web dist、client bundle 过期——并为既有场景补齐 stub 检出夹具，因为这个仓库外的验证环此前把 `DSH_REPO` 指向旧启动器照单全收的空目录。
+全新克隆会在任何镜像构建之前得到 `error: <repo> is not ready to boot: run 'pnpm install' there first`；合并后的树得到同样处理并点名缺失的 client 包；执行 `pnpm install && pnpm run build` 后，rc.8 检出返回 HTTP 200。stub 宿主场景覆盖未安装、无 web dist、client bundle 过期、Compose 启动失败、代理策略不匹配，以及两个服务的诊断输出。
 
 权衡：预检在启动路径上增加一次 `node` 调用（node 本就是硬性先决条件）；预检无法解析的 package.json 会让启动以解析错误而非精选消息中止；检查把每个 `dsh.client` 包都当作必需，即使未来某个 profile 不包含其中一些——误报的代价是一次 `pnpm run build`，漏报的代价是原来的静默崩溃，因此检查从严。

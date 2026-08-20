@@ -31,17 +31,17 @@ The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not
 docker build -t dsh-tailscale:local -f Dockerfile .
 ```
 
-The image installs the published `@deepseek-ai/dsh` package, its runtime peers, and pnpm for profile-plugin management from npm. `DSH_VERSION` defaults to `0.1.0-rc.7`, while `PNPM_VERSION` matches the repository's `packageManager`; update either build argument when its pinned release changes.
+The image installs the published `@deepseek-ai/dsh` package, its runtime peers, and pnpm for profile-plugin management from npm. `DSH_VERSION` defaults to `0.1.0-rc.8`, while `PNPM_VERSION` matches the repository's `packageManager`; update either build argument when its pinned release changes. `run-docker.sh` uses Compose's layer cache by default, so an unchanged relaunch skips the package-install layers; set `DSH_BUILD_NO_CACHE=1` only when an explicit clean rebuild is required.
 
 ## Host requirements
 
 The launcher requires:
 
-- a host already logged into Tailscale; and
-- a container runtime plus Compose — Docker, or podman with `docker-compose`/`podman-compose` — as well as Node.js and curl on `PATH`; and
+- a Linux host already logged into Tailscale, with Node.js, curl, `flock`, and `readlink` on `PATH`; and
+- a container runtime plus Compose — Docker, or podman with `docker-compose`/`podman-compose`; and
 - a repository checkout that is installed and built: `pnpm install && pnpm run build` at its root. The container boots the checkout via its own `pnpm dsh`, which resolves `node_modules` and the built browser artifacts (the web frontend dist and every client package's `lib/client.js`); after pulling or merging, rebuilding is required. The launcher checks this before starting anything and exits with the exact command to run.
 
-The launcher prefers Docker when present and otherwise uses podman; on SELinux hosts (Fedora enables it by default) both services set `label=disable` so the container may read the bind-mounted home and toolchains without relabeling them. Under rootless podman the launcher's generated override adds `userns_mode: keep-id`, which maps the invoking user's uid 1:1 into the container so files the agent creates in the mounted home belong to that user on the host. The container drops to the uid and gid that own `DSH_HOST_USER_HOME` (`DSH_UID`/`DSH_GID`), so hosts whose user is not uid 1000 work unchanged.
+The launcher uses the first reachable container engine with a working Compose provider: Docker with its Compose plugin, then `podman compose`, then the `podman-compose` wrapper. A bare `docker` executable cannot mask a working podman installation. On SELinux hosts (Fedora enables it by default) both services set `label=disable` so the container may read the bind-mounted home and toolchains without relabeling them. Under rootless podman the launcher's generated override adds `userns_mode: keep-id`, which maps the invoking user's uid 1:1 into the container so files the agent creates in the mounted home belong to that user on the host. The container drops to the uid and gid that own `DSH_HOST_USER_HOME` (`DSH_UID`/`DSH_GID`), so hosts whose user is not uid 1000 work unchanged.
 
 The development toolchains are optional. The launcher discovers Flutter and Java from `PATH`, and the Android SDK from `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Android/Sdk`, `~/android-sdk`, `/usr/lib/android-sdk`, or `/opt/android-sdk`. A missing toolchain prints a warning and launches without it: the container then has no `flutter`, `adb`, or `java`, and no related mounts. An override that names a path without the expected executable (`DSH_HOST_FLUTTER_HOME`, `DSH_HOST_ANDROID_HOME`, `DSH_HOST_JAVA_HOME`) is skipped the same way.
 
@@ -59,7 +59,7 @@ systemctl --user enable --now podman.socket   # lets docker-compose talk to podm
 loginctl enable-linger "$USER"           # keeps containers running after logout
 ```
 
-Rootless podman shares the host network namespace in `network_mode: host`, so both loopback services and the host's `tailscaled` interoperate exactly as under Docker. The `podman-docker` alias package is not required; if you install it, prefer invoking `podman` directly so the launcher detects rootless mode and applies `keep-id`.
+Rootless podman shares the host network namespace in `network_mode: host`, so both loopback services and the host's `tailscaled` interoperate exactly as under Docker. The `podman-docker` alias package is not required; auto-detection recognizes its compatibility shim and selects the real podman engine so rootless `keep-id` still applies. Set `DSH_CONTAINER_RUNTIME=podman` to make that choice explicit.
 
 ## Run on the host's Tailscale node
 
@@ -99,7 +99,10 @@ A direct Compose invocation skips the launcher-generated override file, so it mo
 | `DEEPSEEK_API_KEY`      | _(unset)_               | Model credential; the GUI can start without it                |
 | `DEEPSEEK_BASE_URL`     | _(unset)_               | Optional DeepSeek-compatible endpoint                         |
 | `DSH_PUBLIC_PORT`       | `4080`                  | Host loopback port for Caddy and Tailscale Serve              |
-| `DSH_BACKEND_PORT`      | `4081`                  | Host loopback port for `dsh web`                              |
+| `DSH_BACKEND_PORT`      | `4081`                  | Host loopback port for `dsh web`; must differ from the public port |
+| `DSH_CONTAINER_RUNTIME` | `auto`                  | `auto`, `docker`, or `podman`; the selected engine must be reachable |
+| `DSH_BUILD_NO_CACHE`    | `0`                     | Set to `1` for an explicit clean image rebuild                |
+| `DSH_STARTUP_TIMEOUT`   | `90`                    | Seconds to wait for the health-gated auth proxy               |
 | `DSH_HOST_USER_HOME`    | `$HOME` in the launcher | Host home mounted read-write at the same container path       |
 | `DSH_UID` / `DSH_GID`   | owner of the host home  | Container uid/gid for the harness process (set by the launcher) |
 | `DSH_HOST_WORKSPACE`    | `$HOME/git`, else `$HOME` | Agent working directory inside the container              |

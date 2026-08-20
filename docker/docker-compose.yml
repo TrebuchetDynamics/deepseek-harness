@@ -10,6 +10,7 @@
 #
 # Environment (or docker/.env):
 #   DEEPSEEK_API_KEY=sk-...   # required for chat; not required to serve the GUI
+#   DEEPSEEK_BASE_URL=          # optional DeepSeek-compatible endpoint
 #   DSH_TELEGRAM_BOT_TOKEN=   # optional dsh-telegram bot token
 #   DSH_PUBLIC_PORT=4080      # Tailscale Serve proxy target
 #   DSH_BACKEND_PORT=4081     # harness loopback port
@@ -55,6 +56,7 @@ services:
       - label=disable
     environment:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-}
       - DSH_TELEGRAM_BOT_TOKEN=${DSH_TELEGRAM_BOT_TOKEN:-}
       - DSH_HOME=${DSH_HOST_USER_HOME:-/home/xel}/.dsh
       - DSH_PORT=${DSH_BACKEND_PORT:-4081}

@@ -14,7 +14,7 @@ Status: implemented
 
 ## 决策
 
-运行时检测取代了 `docker` 硬性要求：`PATH` 上的 `docker` 优先，其次是 `podman compose`（委托给 `docker-compose` 或 `podman-compose` 提供方），再次是 `podman-compose` 包装器，都没有则启动器带安装指引中止。检测到的命令数组用于所有 Compose 调用。`node`、`curl`、`tailscale` 仍是硬性要求（启动器用 `node` 解析 `tailscale status` 的 JSON）。
+运行时检测取代了 `docker` 硬性要求。默认 `DSH_CONTAINER_RUNTIME=auto` 模式下，只有当 Docker 不是 podman 兼容 shim、Compose 插件可用且 `docker info` 能访问引擎时，Docker 才优先；否则启动器尝试可达的 podman 引擎与 `podman compose`，并回退到 `podman-compose` 提供方。`DSH_CONTAINER_RUNTIME=docker|podman` 可明确选择一个运行时，并以被拒候选的原因失败。检测到的命令数组用于所有 Compose 调用。启动器在非 Linux 宿主上提前失败，并要求 `PATH` 上存在 `node`、`curl`、`tailscale`、`flock` 与 `readlink`；其宿主网络、进程锁和 GNU 路径处理都依赖 Linux。Tailscale 命令或 JSON 失败会产生专门错误，而不是后续误报 MagicDNS 为空。
 
 容器进程降权到挂载宿主 home 的属主 uid/gid（`stat -c '%u %g'`，`stat` 不可用时带警告回退到调用用户），以 `DSH_UID`/`DSH_GID` 导出并经 Compose 传入入口脚本。入口脚本为独立 `docker run` 保留默认值 1000，在启动 `tailscaled` 之前把 Tailscale 状态目录 chown 到该 uid/gid，并用 `setpriv --clear-groups` 而非 `--init-groups` 降权，因为任意 uid 在镜像中没有 passwd 条目。
 
@@ -24,7 +24,7 @@ SELinux 在基础 compose 文件中一次性处理：两个服务都设置 `secu
 
 `dsh` 服务还设置 `init: true`：入口脚本 exec 掉了自己的 shell，孤儿进程（`pnpm`/`tsx` 进程树、`tailscaled`）否则会累积成僵尸进程；docker-init 与 podman 的 catatonit 都会收割它们。
 
-同一变更中的 Dockerfile 改进：npm 缓存挂载（`--mount=type=cache,target=/root/.npm`）让约 90 MB 的全局安装下载在启动器 `--no-cache` 重建之间保留，且不进入镜像层（原来的 `rm -rf ~/.npm` 会清掉缓存挂载，因此删除）；OCI 注解（`org.opencontainers.image.*`，版本取自 `DSH_VERSION`）让构建出的镜像可被 inspect；移除了 `VOLUME` 声明——状态由 Compose 经 `tsstate` 具名卷持有，匿名卷在每次独立重启时悄悄累积。
+同一变更中的 Dockerfile 改进：npm 缓存挂载（`--mount=type=cache,target=/root/.npm`）让约 90 MB 的全局安装下载在重建之间保留，且不进入镜像层（原来的 `rm -rf ~/.npm` 会清掉缓存挂载，因此删除）；OCI 注解（`org.opencontainers.image.*`，版本取自 `DSH_VERSION`）让构建出的镜像可被 inspect；移除了 `VOLUME` 声明——状态由 Compose 经 `tsstate` 具名卷持有，匿名卷在每次独立重启时悄悄累积。启动器默认执行普通缓存构建；`DSH_BUILD_NO_CACHE=1` 可明确要求干净重建，同时仍保留 npm 缓存挂载。
 
 ## 考虑过的替代方案
 
@@ -42,6 +42,6 @@ SELinux 在基础 compose 文件中一次性处理：两个服务都设置 `secu
 
 Fedora 宿主以 rootless podman 运行 `./run-docker.sh` 无需任何配置：启动器选择 `podman compose`，生成 `keep-id` override，两个服务都在禁用 SELinux 标签下运行，agent 在挂载 home 中的文件属于调用用户。rootful Docker 与 rootful podman 行为不变，除了 `init: true`（僵尸进程收割）与 uid 现在跟随 home 属主而非镜像硬编码的 1000——在原机器上两者都是 uid 1000，可观察差异只有 chown 与 `--clear-groups` 机制，不是结果所有权。
 
-权衡：`podman compose` 需要提供方二进制，且（对 `docker-compose` 提供方）需要运行中的 `podman.socket`——README 的 Fedora 说明给出三条安装命令；rootless podman 下 `restart: unless-stopped` 只有在 `loginctl enable-linger` 之后才能在注销后存活，同样有文档。`podman-docker` 别名包使 `docker` 解析到 podman shim；启动器随后把它当 Docker 对待并跳过 rootless 检测，因此 README 告诉别名用户直接调用 `podman`。`label=disable` 移除了这两个服务的 SELinux 限制——可接受，因为这些服务是机器本地、回环绑定，且按设计已持有 home 的读写权限；它们失去的限制并非组合所依赖的。不带 Compose 的独立 `docker run` 不再经匿名卷持久化 Tailscale 状态；Compose 运行经 `tsstate` 保留。
+权衡：`podman compose` 需要提供方二进制，且（对 `docker-compose` 提供方）需要运行中的 `podman.socket`——README 的 Fedora 说明给出三条安装命令；rootless podman 下 `restart: unless-stopped` 只有在 `loginctl enable-linger` 之后才能在注销后存活，同样有文档。自动选择会拒绝把 `podman-docker` 兼容 shim 当作 Docker，并选择真实 podman 引擎，从而保留 rootless 检测；含糊安装仍可明确覆盖运行时。`label=disable` 移除了这两个服务的 SELinux 限制——可接受，因为这些服务是机器本地、回环绑定，且按设计已持有 home 的读写权限；它们失去的限制并非组合所依赖的。不带 Compose 的独立 `docker run` 不再经匿名卷持久化 Tailscale 状态；Compose 运行经 `tsstate` 保留。
 
-验证：仓库外的 stub 宿主套件从 57 条断言增长到 98 条。新场景：rootless podman（记录 compose 委托、生成的 override 含 `keep-id` 与 volumes、导出 `DSH_UID`/`DSH_GID`）、rootful podman（无 `keep-id`）、无 compose 提供方的 podman（带安装指引中止）、`podman-compose` 包装器路径（无 `podman` 二进制也可工作）、无 `stat` 的宿主（带警告回退到调用用户）、完全没有容器运行时（带指引中止）。入口脚本与 Dockerfile 契约 grep 固定了 uid 无关的 `setpriv` 降权、chown 先于 `tailscaled` 的顺序、以及 label/cache/VOLUME 变更；真实 Compose v5.5.0 二进制渲染 `init`、`security_opt`、`DSH_UID`/`DSH_GID` 插值与 `userns_mode` 合并（基础渲染中不存在，rootless override 下存在）——这扩展了 2026-08-19 的启动器降级笔记，该笔记此前把 `docker` 列在硬性先决条件中。
+验证使用仓库外 stub 宿主覆盖 rootless 与 rootful podman、提供方缺失、Docker 引擎失败后回退 podman、`podman-docker` shim 检测、明确运行时选择、缓存与干净构建、孤儿清理、启动诊断、端口校验、缺少 `stat` 以及完全没有运行时。入口脚本与 Dockerfile 检查固定了 uid 无关的 `setpriv` 降权、chown 先于 `tailscaled` 的顺序，以及 label/cache/VOLUME 决策。真实 Compose v5.5.0 渲染覆盖 `init`、`security_opt`、`DSH_UID`/`DSH_GID` 插值与 `userns_mode` 合并（基础渲染中不存在，rootless override 下存在）。

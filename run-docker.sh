@@ -7,49 +7,98 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+die() { echo "error: $*" >&2; exit 1; }
+warn() { echo "warning: $*" >&2; }
+
+[ "$(uname -s)" = Linux ] || die "run-docker.sh requires a Linux host"
+# The launcher cannot run without these; every other host dependency degrades.
+for tool in node curl tailscale flock readlink; do
+  command -v "$tool" >/dev/null 2>&1 || die "$tool executable not found on PATH"
+done
+
 # Compose recreation uses temporary container names, so concurrent launches conflict.
 exec 9<"$0"
 flock 9
 
-die() { echo "error: $*" >&2; exit 1; }
-warn() { echo "warning: $*" >&2; }
-
-# The launcher cannot run without these; every other host dependency degrades.
-for tool in node curl tailscale; do
-  command -v "$tool" >/dev/null 2>&1 || die "$tool executable not found on PATH"
-done
-
 # --- Container runtime ---------------------------------------------------------
-# Docker when present, else podman with a compose provider (the Fedora
-# default). `podman compose` delegates to docker-compose or podman-compose,
-# whichever is installed; the legacy podman-compose wrapper is the last resort.
+# Auto-selection requires both a Compose frontend and a reachable engine. A
+# broken Docker installation therefore cannot mask a working Fedora/podman one.
 compose_cmd=()
-if command -v docker >/dev/null 2>&1; then
+rootless_podman=0
+docker_reason="not found on PATH"
+podman_reason="not found on PATH"
+
+select_docker() {
+  command -v docker >/dev/null 2>&1 || return 1
+  local docker_version
+  docker_version="$(docker --version 2>/dev/null || true)"
+  if [[ "${docker_version,,}" = *podman* ]]; then
+    docker_reason="docker is a podman compatibility shim"
+    return 1
+  fi
+  docker compose version >/dev/null 2>&1 || { docker_reason="Compose plugin unavailable"; return 1; }
+  docker info >/dev/null 2>&1 || { docker_reason="engine unreachable or permission denied"; return 1; }
   compose_cmd=(docker compose)
-elif command -v podman >/dev/null 2>&1; then
+  return 0
+}
+
+select_podman() {
+  command -v podman >/dev/null 2>&1 || return 1
+  local rootless
+  rootless="$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null)" || {
+    podman_reason="engine unreachable or permission denied"
+    return 1
+  }
   if podman compose version >/dev/null 2>&1; then
     compose_cmd=(podman compose)
   elif command -v podman-compose >/dev/null 2>&1; then
     compose_cmd=(podman-compose)
   else
-    die "podman found but no compose provider; install docker-compose or podman-compose"
+    podman_reason="no compose provider; install docker-compose or podman-compose"
+    return 1
   fi
-elif command -v podman-compose >/dev/null 2>&1; then
-  compose_cmd=(podman-compose)
-else
-  die "no container runtime found: install docker, or podman plus a compose provider"
-fi
+  [ "$rootless" = true ] && rootless_podman=1
+  return 0
+}
 
-# Rootless podman maps container uids through a user namespace; keep-id maps
-# the host user's uid 1:1 into the container so files written to the mounted
-# home keep the host owner. Rootful podman and Docker use host uids directly.
-rootless_podman=0
-if [ "${compose_cmd[0]}" = podman ] || [ "${compose_cmd[0]}" = podman-compose ]; then
-  [ "$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null || true)" = true ] && rootless_podman=1
-fi
+case "${DSH_CONTAINER_RUNTIME:-auto}" in
+  auto)
+    select_docker || select_podman || die "no working container runtime (docker: $docker_reason; podman: $podman_reason)"
+    ;;
+  docker)
+    select_docker || die "DSH_CONTAINER_RUNTIME=docker is unavailable: $docker_reason"
+    ;;
+  podman)
+    select_podman || die "DSH_CONTAINER_RUNTIME=podman is unavailable: $podman_reason"
+    ;;
+  *) die "DSH_CONTAINER_RUNTIME must be auto, docker, or podman" ;;
+esac
+
+# Rootless podman maps the host user's uid 1:1 into the container so files
+# written to the mounted home keep the host owner. Rootful engines use host
+# uids directly.
+
+case "${DSH_BUILD_NO_CACHE:-0}" in
+  0) build_args=(); build_cache=enabled ;;
+  1) build_args=(--no-cache); build_cache=disabled ;;
+  *) die "DSH_BUILD_NO_CACHE must be 0 or 1" ;;
+esac
+
+echo "container runtime: ${compose_cmd[*]} (build cache: $build_cache)"
 
 export DSH_PUBLIC_PORT="${DSH_PUBLIC_PORT:-4080}"
 export DSH_BACKEND_PORT="${DSH_BACKEND_PORT:-4081}"
+DSH_STARTUP_TIMEOUT="${DSH_STARTUP_TIMEOUT:-90}"
+validate_port() {
+  local name="$1" value="$2"
+  [[ "$value" =~ ^[0-9]+$ ]] && (( 10#$value >= 1 && 10#$value <= 65535 )) || die "$name must be an integer from 1 to 65535"
+}
+validate_port DSH_PUBLIC_PORT "$DSH_PUBLIC_PORT"
+validate_port DSH_BACKEND_PORT "$DSH_BACKEND_PORT"
+(( 10#$DSH_PUBLIC_PORT != 10#$DSH_BACKEND_PORT )) || die "DSH_PUBLIC_PORT and DSH_BACKEND_PORT must be different"
+[[ "$DSH_STARTUP_TIMEOUT" =~ ^[0-9]+$ ]] && (( 10#$DSH_STARTUP_TIMEOUT > 0 )) || die "DSH_STARTUP_TIMEOUT must be a positive integer"
+DSH_STARTUP_TIMEOUT=$((10#$DSH_STARTUP_TIMEOUT))
+
 export DSH_HOST_USER_HOME="${DSH_HOST_USER_HOME:-$HOME}"
 [ -d "$DSH_HOST_USER_HOME" ] || die "host home directory not found: $DSH_HOST_USER_HOME"
 # The container drops to the host home's owner so files the agent creates in
@@ -154,13 +203,19 @@ fi
 
 echo "host toolchains: flutter=${DSH_HOST_FLUTTER_HOME:-none} android=${DSH_HOST_ANDROID_HOME:-none} java=${DSH_HOST_JAVA_HOME:-none}"
 
-readarray -t tailnet < <(tailscale status --json | node -e '
+if ! tailscale_status="$(tailscale status --json 2>/dev/null)"; then
+  die "Tailscale status unavailable; connect this host with 'tailscale up'"
+fi
+if ! tailnet_output="$(printf '%s' "$tailscale_status" | node -e '
 let s = ""
 process.stdin.on("data", d => { s += d }).on("end", () => {
   const status = JSON.parse(s)
   console.log((status.Self?.DNSName ?? "").replace(/\.$/, ""))
   console.log(status.User?.[String(status.Self?.UserID)]?.LoginName ?? "")
-})')
+})')"; then
+  die "Tailscale returned invalid status JSON"
+fi
+readarray -t tailnet <<<"$tailnet_output"
 magicdns="${tailnet[0]:-}"
 export TAILSCALE_OWNER="${TAILSCALE_OWNER:-${tailnet[1]:-}}"
 [ -n "$magicdns" ] || die "Tailscale MagicDNS name unavailable"
@@ -216,24 +271,45 @@ if [ -n "$host_volumes" ] || [ -n "$dsh_override" ]; then
   compose_files+=(-f "$override_file")
 fi
 
-"${compose_cmd[@]}" "${compose_files[@]}" build --no-cache
-"${compose_cmd[@]}" "${compose_files[@]}" up -d --force-recreate "$@"
+diagnose_stack() {
+  echo "--- compose service state ---" >&2
+  "${compose_cmd[@]}" "${compose_files[@]}" ps -a >&2 || true
+  echo "--- recent dsh/auth-proxy logs ---" >&2
+  "${compose_cmd[@]}" "${compose_files[@]}" logs --tail 30 dsh auth-proxy >&2 || true
+}
+
+if ! "${compose_cmd[@]}" "${compose_files[@]}" build "${build_args[@]}"; then
+  die "container image build failed"
+fi
+if ! "${compose_cmd[@]}" "${compose_files[@]}" up -d --force-recreate --remove-orphans "$@"; then
+  diagnose_stack
+  die "composition failed to start"
+fi
 proxy="http://127.0.0.1:${DSH_PUBLIC_PORT}"
 proxy_ready=
 # The auth-proxy binds only after the dsh healthcheck passes, and a cold
 # `pnpm dsh` boot (tsx compiling the checkout) can take tens of seconds.
-for _ in {1..45}; do
+for ((attempt = 0; attempt < DSH_STARTUP_TIMEOUT; attempt++)); do
   if curl -fsS -o /dev/null "$proxy/" 2>/dev/null; then proxy_ready=1; break; fi
   sleep 1
 done
 if [ -z "$proxy_ready" ]; then
-  "${compose_cmd[@]}" -f docker/docker-compose.yml logs --tail 30 dsh >&2 || true
-  die "proxy did not start at $proxy"
+  diagnose_stack
+  die "proxy did not start at $proxy within ${DSH_STARTUP_TIMEOUT}s"
 fi
 probe=( -sS -o /dev/null -w '%{http_code}' -X POST "$proxy/api/settings.describe" -H "Host: $magicdns" -H "Origin: https://$magicdns" -H 'content-type: application/json' --data '{}' )
-denied="$(curl "${probe[@]}" -H 'Tailscale-User-Login: unauthorized@example.invalid')"
-allowed="$(curl "${probe[@]}" -H "Tailscale-User-Login: $TAILSCALE_OWNER")"
-[ "$denied" = 403 ] && [ "$allowed" = 200 ] || die "Tailscale identity proxy self-check failed"
+if ! denied="$(curl "${probe[@]}" -H 'Tailscale-User-Login: unauthorized@example.invalid')"; then
+  diagnose_stack
+  die "Tailscale identity proxy self-check request failed for the unauthorized identity"
+fi
+if ! allowed="$(curl "${probe[@]}" -H "Tailscale-User-Login: $TAILSCALE_OWNER")"; then
+  diagnose_stack
+  die "Tailscale identity proxy self-check request failed for $TAILSCALE_OWNER"
+fi
+if [ "$denied" != 403 ] || [ "$allowed" != 200 ]; then
+  diagnose_stack
+  die "Tailscale identity proxy self-check failed (denied=$denied, allowed=$allowed)"
+fi
 
 tailscale serve --tcp=80 off >/dev/null 2>&1 || true
-tailscale serve --yes --bg --https=443 "$proxy"
+tailscale serve --yes --bg --https=443 "$proxy" || die "failed to publish $proxy with Tailscale Serve"

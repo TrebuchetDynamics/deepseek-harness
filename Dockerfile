@@ -53,8 +53,8 @@ RUN i=0; until apt-get update && apt-get install -y --no-install-recommends bash
 # native addons) install as one package; version-pinned to the fork.
 # npm 11 blocks install scripts by default; the natives (node-pty terminal,
 # koffi LLM client binding, dsh-subprocess-local) need theirs run. The cache
-# mount keeps the ~90 MB download across rebuilds (run-docker.sh builds with
-# --no-cache) and never enters the image layer.
+# mount keeps the ~90 MB download across rebuilds, including explicit
+# no-cache rebuilds, and never enters the image layer.
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g --no-audit --no-fund \
       --allow-scripts=node-pty,koffi,@deepseek-ai/dsh-subprocess-local,@google/genai,protobufjs \

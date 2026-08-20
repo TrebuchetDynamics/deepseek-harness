@@ -31,17 +31,17 @@ Harness 的 `--trusted-host` 选项是 DNS rebinding 与跨站栅栏，而不是
 docker build -t dsh-tailscale:local -f Dockerfile .
 ```
 
-镜像从 npm 安装已发布的 `@deepseek-ai/dsh` 包、其运行时对等包，以及用于 profile 插件管理的 pnpm。`DSH_VERSION` 默认为 `0.1.0-rc.7`，`PNPM_VERSION` 则与仓库的 `packageManager` 一致；固定版本变化时更新对应构建参数。
+镜像从 npm 安装已发布的 `@deepseek-ai/dsh` 包、其运行时对等包，以及用于 profile 插件管理的 pnpm。`DSH_VERSION` 默认为 `0.1.0-rc.8`，`PNPM_VERSION` 则与仓库的 `packageManager` 一致；固定版本变化时更新对应构建参数。`run-docker.sh` 默认使用 Compose 层缓存，未变化的重启会跳过包安装层；只有明确需要干净重建时才设置 `DSH_BUILD_NO_CACHE=1`。
 
 ## 宿主要求
 
 启动器要求：
 
-- 宿主已登录 Tailscale；以及
-- 容器运行时加 Compose —— Docker，或 podman 加 `docker-compose`/`podman-compose` —— 且 `PATH` 上存在 Node.js 和 curl；以及
+- 已登录 Tailscale 的 Linux 宿主，且 `PATH` 上存在 Node.js、curl、`flock` 与 `readlink`；以及
+- 容器运行时加 Compose —— Docker，或 podman 加 `docker-compose`/`podman-compose`；以及
 - 一个已安装并已构建的仓库检出：在其根目录执行 `pnpm install && pnpm run build`。容器通过自己的 `pnpm dsh` 启动检出，它要解析 `node_modules` 与已构建的浏览器产物（web 前端 dist 和每个 client 包的 `lib/client.js`）；拉取或合并之后必须重新构建。启动器在启动任何容器之前都会检查这一点，并以退出方式给出需要执行的确切命令。
 
-启动器优先使用 Docker，其次使用 podman；在 SELinux 宿主（Fedora 默认开启）上，两个服务都设置 `label=disable`，使容器无需重打标签即可读写挂载的 home 与工具链。rootless podman 下，启动器生成的 override 追加 `userns_mode: keep-id`，把当前用户的 uid 一一映射进容器，agent 在挂载 home 中创建的文件在宿主上仍属于该用户。容器以 `DSH_HOST_USER_HOME` 属主的 uid/gid（`DSH_UID`/`DSH_GID`）运行，宿主用户不是 uid 1000 时也无需任何调整。
+启动器使用第一个可达且具备可工作 Compose 提供方的容器引擎：带 Compose 插件的 Docker，其次是 `podman compose`，再次是 `podman-compose` 包装器；只有 `docker` 可执行文件但没有插件时，不会遮蔽可工作的 podman。在 SELinux 宿主（Fedora 默认开启）上，两个服务都设置 `label=disable`，使容器无需重打标签即可读写挂载的 home 与工具链。rootless podman 下，启动器生成的 override 追加 `userns_mode: keep-id`，把当前用户的 uid 一一映射进容器，agent 在挂载 home 中创建的文件在宿主上仍属于该用户。容器以 `DSH_HOST_USER_HOME` 属主的 uid/gid（`DSH_UID`/`DSH_GID`）运行，宿主用户不是 uid 1000 时也无需任何调整。
 
 开发工具链是可选的。启动器从 `PATH` 发现 Flutter 与 Java，并按 `$ANDROID_HOME`、`$ANDROID_SDK_ROOT`、`~/Android/Sdk`、`~/android-sdk`、`/usr/lib/android-sdk`、`/opt/android-sdk` 的顺序发现 Android SDK。缺失的工具链只产生警告并以无该工具链的方式启动：容器内随后没有 `flutter`、`adb` 或 `java`，也没有对应挂载。覆盖变量（`DSH_HOST_FLUTTER_HOME`、`DSH_HOST_ANDROID_HOME`、`DSH_HOST_JAVA_HOME`）指向的路径缺少预期可执行文件时，同样被跳过。
 
@@ -59,7 +59,7 @@ systemctl --user enable --now podman.socket   # lets docker-compose talk to podm
 loginctl enable-linger "$USER"           # keeps containers running after logout
 ```
 
-rootless podman 在 `network_mode: host` 下共享宿主网络命名空间，两个回环服务与宿主 `tailscaled` 的交互与 Docker 下完全一致。无需安装 `podman-docker` 别名包；若安装了它，请直接调用 `podman`，以便启动器识别 rootless 模式并应用 `keep-id`。
+rootless podman 在 `network_mode: host` 下共享宿主网络命名空间，两个回环服务与宿主 `tailscaled` 的交互与 Docker 下完全一致。无需安装 `podman-docker` 别名包；自动检测会识别其兼容 shim 并选择真实 podman 引擎，使 rootless `keep-id` 仍然生效。设置 `DSH_CONTAINER_RUNTIME=podman` 可明确该选择。
 
 ## 在宿主的 Tailscale 节点上运行
 
@@ -99,7 +99,10 @@ docker compose -f docker/docker-compose.yml up -d --build
 | `DEEPSEEK_API_KEY`      | _（未设置）_        | 模型凭据；没有它也能启动 GUI                  |
 | `DEEPSEEK_BASE_URL`     | _（未设置）_        | 可选的 DeepSeek 兼容端点                      |
 | `DSH_PUBLIC_PORT`       | `4080`              | Caddy 与 Tailscale Serve 使用的宿主回环端口   |
-| `DSH_BACKEND_PORT`      | `4081`              | `dsh web` 使用的宿主回环端口                  |
+| `DSH_BACKEND_PORT`      | `4081`              | `dsh web` 使用的宿主回环端口；必须与公开端口不同 |
+| `DSH_CONTAINER_RUNTIME` | `auto`              | `auto`、`docker` 或 `podman`；选中的引擎必须可达 |
+| `DSH_BUILD_NO_CACHE`    | `0`                 | 设为 `1` 时明确执行干净镜像重建              |
+| `DSH_STARTUP_TIMEOUT`   | `90`                | 等待健康检查门控 auth proxy 的秒数            |
 | `DSH_HOST_USER_HOME`    | 启动器中为 `$HOME`  | 以相同容器路径读写挂载的宿主 home             |
 | `DSH_UID` / `DSH_GID`   | 宿主 home 的属主    | harness 进程在容器内的 uid/gid（启动器设置） |
 | `DSH_HOST_WORKSPACE`    | `$HOME/git`，缺失时 `$HOME` | 容器内 agent 的工作目录             |
