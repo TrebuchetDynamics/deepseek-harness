@@ -69,6 +69,15 @@ describe('SidebarRoot.module.css', () => {
     expect(declarations('.collapsed .newSession')?.get('width')).toBe('36px')
   })
 
+  it('keeps the slotted brand row at the full artwork height', () => {
+    expect(declarations('.brandIdentity')?.get('height')).toBe('24px')
+    expect(declarations('.brandName')?.get('height')).toBe('24px')
+    expect(declarations('.brandName')?.get('line-height')).toBe('24px')
+    expect(declarations('.brandName')?.get('font-size')).toBe('18px')
+    expect(declarations('.fallbackBrandName')?.get('font-size')).toBe('17px')
+    expect(declarations('.fallbackBrandName')?.get('white-space')).toBe('nowrap')
+  })
+
   it('grows the rail controls to 44px touch targets on narrow viewports only', () => {
     // The block sits at EOF (the last rule in the sheet), so capture to end.
     const media = /@media \(max-width: 1023px\)\s*\{([\s\S]*)$/.exec(css)?.[1] ?? ''
