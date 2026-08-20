@@ -115,10 +115,10 @@ A direct Compose invocation skips the launcher-generated override file, so it mo
 ## Keeping the fork up to date
 
 ```sh
-git fetch upstream
-git merge upstream/master
-git push origin master
+./upstream-merge.sh
 ```
+
+The script merges `upstream/master` into `master`, re-pins the image's `DSH_VERSION` to the merged release, reinstalls dependencies when the lockfile changed, and typechecks. On conflict it leaves the in-progress merge with the conflicted file list (bilingual pairs are resolved with `pnpm run resolve-translation-pairing-conflicts`); rerun it after committing a manual resolution. It never pushes — review, then `git push`.
 
 The Docker utility stays outside product packages so upstream merges normally have a small conflict surface.
 

@@ -115,10 +115,10 @@ docker compose -f docker/docker-compose.yml up -d --build
 ## 让 fork 与上游保持同步
 
 ```sh
-git fetch upstream
-git merge upstream/master
-git push origin master
+./upstream-merge.sh
 ```
+
+脚本把 `upstream/master` 合并进 `master`，将镜像的 `DSH_VERSION` 重新固定到合并后的版本，lockfile 变化时重装依赖，并运行类型检查。发生冲突时，它保留进行中的合并并列出冲突文件（双语文档对用 `pnpm run resolve-translation-pairing-conflicts` 解决）；手工解决并提交后重新运行即可。脚本不会推送——审查后自行 `git push`。
 
 Docker 工具位于产品包之外，因此上游合并通常只有很小的冲突面。
 
