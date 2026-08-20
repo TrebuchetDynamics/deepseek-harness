@@ -12,7 +12,7 @@ import { SettingsSchemaService } from '../src/client/schema.ts'
 import { SettingsScopeBinder } from '../src/client/settings-scope.ts'
 
 /** Boot the browser half over a fake loopback connection and test remote. */
-function bench() {
+function bench(isLoopback = true) {
   const describeCall = vi.fn().mockResolvedValue({
     rpcId: 'plugin-bench' as never,
     result: { ok: true, value: { writable: true, hasDocument: true, namespaces: [] } },
@@ -20,7 +20,7 @@ function bench() {
   const ctx = new Context()
   ctx.provide('connection', {
     api: { settings: { describe: describeCall } },
-    isLoopback: true,
+    isLoopback,
   } as never)
   new TestRemote(ctx)
   return { ctx, describeCall, fiber: ctx.plugin({ inject: [...inject], apply }) }
@@ -32,6 +32,12 @@ describe('settings domain base plugin', () => {
     await fiber.await()
     expect(ctx.get('settingsScope')).toBeInstanceOf(SettingsScopeBinder)
     expect(ctx.get('settingsSchema')).toBeInstanceOf(SettingsSchemaService)
+    await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(1) })
+  })
+
+  it('lets the Host authorize settings reads from a remote browser', async () => {
+    const { describeCall, fiber } = bench(false)
+    await fiber.await()
     await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(1) })
   })
 
