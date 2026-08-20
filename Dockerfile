@@ -15,7 +15,7 @@
 # falls back to the published CLI otherwise, keeping builds small and quick
 # even on slow uplinks.
 
-ARG DSH_VERSION=0.1.0-rc.7
+ARG DSH_VERSION=0.1.0-rc.8
 ARG PNPM_VERSION=11.7.0
 
 FROM node:24-bookworm-slim AS runtime
