@@ -38,7 +38,8 @@ The image installs the published `@deepseek-ai/dsh` package, its runtime peers, 
 The launcher requires:
 
 - a host already logged into Tailscale; and
-- a container runtime plus Compose — Docker, or podman with `docker-compose`/`podman-compose` — as well as Node.js and curl on `PATH`.
+- a container runtime plus Compose — Docker, or podman with `docker-compose`/`podman-compose` — as well as Node.js and curl on `PATH`; and
+- a repository checkout that is installed and built: `pnpm install && pnpm run build` at its root. The container boots the checkout via its own `pnpm dsh`, which resolves `node_modules` and the built browser artifacts (the web frontend dist and every client package's `lib/client.js`); after pulling or merging, rebuilding is required. The launcher checks this before starting anything and exits with the exact command to run.
 
 The launcher prefers Docker when present and otherwise uses podman; on SELinux hosts (Fedora enables it by default) both services set `label=disable` so the container may read the bind-mounted home and toolchains without relabeling them. Under rootless podman the launcher's generated override adds `userns_mode: keep-id`, which maps the invoking user's uid 1:1 into the container so files the agent creates in the mounted home belong to that user on the host. The container drops to the uid and gid that own `DSH_HOST_USER_HOME` (`DSH_UID`/`DSH_GID`), so hosts whose user is not uid 1000 work unchanged.
 

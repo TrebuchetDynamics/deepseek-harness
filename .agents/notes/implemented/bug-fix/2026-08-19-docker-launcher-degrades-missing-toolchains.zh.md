@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-`run-docker.sh` 区分硬性先决条件与可选工具链。硬性先决条件——一个容器运行时（Docker，或带 compose 提供方的 podman；见 2026-08-20 移植性笔记）、`PATH` 上的 `node`、`curl`、`tailscale`，存在的宿主 home，以及存在的仓库——仍然以 `error:` 消息中止。其余一切以 `warning:` 消息降级，并输出一行 `host toolchains:` 摘要：
+`run-docker.sh` 区分硬性先决条件与可选工具链。硬性先决条件——一个容器运行时（Docker，或带 compose 提供方的 podman；见 2026-08-20 移植性笔记）、`PATH` 上的 `node`、`curl`、`tailscale`，存在的宿主 home，存在的仓库，以及已安装并已构建的检出（见 2026-08-20 检出预检笔记）——仍然以 `error:` 消息中止。其余一切以 `warning:` 消息降级，并输出一行 `host toolchains:` 摘要：
 
 - 存在时从 `PATH` 推导 Flutter 与 Java；缺失或显式覆盖无效时把变量置空。
 - Android SDK 按 `$ANDROID_HOME`、`$ANDROID_SDK_ROOT`、`~/Android/Sdk`、`~/android-sdk`、`/usr/lib/android-sdk`、`/opt/android-sdk` 的顺序发现——第一个具有 `platform-tools/adb` 的候选者胜出。`DSH_HOST_ANDROID_HOME` 指向的路径缺少 `platform-tools/adb` 时警告并继续，不带 SDK 启动。

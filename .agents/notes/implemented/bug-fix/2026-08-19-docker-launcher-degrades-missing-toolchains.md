@@ -12,7 +12,7 @@ The toolchains are conveniences for the mounted agent, not preconditions for ser
 
 ## Decision
 
-`run-docker.sh` distinguishes hard prerequisites from optional toolchains. Hard prerequisites — a container runtime (Docker, or podman with a compose provider; see the 2026-08-20 portability note), `node`, `curl`, `tailscale` on `PATH`, an existing host home, and an existing repository — still abort with `error:` messages. Everything else degrades with `warning:` messages and a one-line `host toolchains:` summary:
+`run-docker.sh` distinguishes hard prerequisites from optional toolchains. Hard prerequisites — a container runtime (Docker, or podman with a compose provider; see the 2026-08-20 portability note), `node`, `curl`, `tailscale` on `PATH`, an existing host home, an existing repository, and a checkout that is installed and built (see the 2026-08-20 checkout preflight note) — still abort with `error:` messages. Everything else degrades with `warning:` messages and a one-line `host toolchains:` summary:
 
 - Flutter and Java are derived from `PATH` when present; absence or an invalid explicit override empties the variable.
 - The Android SDK is discovered from `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Android/Sdk`, `~/android-sdk`, `/usr/lib/android-sdk`, `/opt/android-sdk` — first candidate with `platform-tools/adb` wins. `DSH_HOST_ANDROID_HOME` set to a path without `platform-tools/adb` warns and continues without the SDK.

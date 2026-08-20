@@ -38,7 +38,8 @@ docker build -t dsh-tailscale:local -f Dockerfile .
 启动器要求：
 
 - 宿主已登录 Tailscale；以及
-- 容器运行时加 Compose —— Docker，或 podman 加 `docker-compose`/`podman-compose` —— 且 `PATH` 上存在 Node.js 和 curl。
+- 容器运行时加 Compose —— Docker，或 podman 加 `docker-compose`/`podman-compose` —— 且 `PATH` 上存在 Node.js 和 curl；以及
+- 一个已安装并已构建的仓库检出：在其根目录执行 `pnpm install && pnpm run build`。容器通过自己的 `pnpm dsh` 启动检出，它要解析 `node_modules` 与已构建的浏览器产物（web 前端 dist 和每个 client 包的 `lib/client.js`）；拉取或合并之后必须重新构建。启动器在启动任何容器之前都会检查这一点，并以退出方式给出需要执行的确切命令。
 
 启动器优先使用 Docker，其次使用 podman；在 SELinux 宿主（Fedora 默认开启）上，两个服务都设置 `label=disable`，使容器无需重打标签即可读写挂载的 home 与工具链。rootless podman 下，启动器生成的 override 追加 `userns_mode: keep-id`，把当前用户的 uid 一一映射进容器，agent 在挂载 home 中创建的文件在宿主上仍属于该用户。容器以 `DSH_HOST_USER_HOME` 属主的 uid/gid（`DSH_UID`/`DSH_GID`）运行，宿主用户不是 uid 1000 时也无需任何调整。
 

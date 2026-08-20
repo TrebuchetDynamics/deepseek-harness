@@ -69,6 +69,27 @@ export DSH_UID DSH_GID
 export DSH_REPO="${DSH_REPO:-$PWD}"
 [ -d "$DSH_REPO" ] || die "repository directory not found: $DSH_REPO"
 
+# The container boots this checkout via its own `pnpm dsh`, which resolves the
+# repository's installed modules and built browser artifacts. A fresh clone or
+# a freshly merged tree without them crashes the container at startup, so fail
+# here with the exact command instead. Prints the missing step, if any.
+preflight="$(node -e '
+const fs = require("node:fs"), path = require("node:path")
+const repo = process.argv[1]
+if (!fs.existsSync(path.join(repo, "node_modules"))) { console.log("pnpm install"); process.exit(0) }
+if (!fs.existsSync(path.join(repo, "apps/web/dist/index.html"))) { console.log("pnpm run build (web frontend missing)"); process.exit(0) }
+const missing = []
+for (const dir of fs.readdirSync(path.join(repo, "packages/client"))) {
+  const pkg = path.join(repo, "packages/client", dir)
+  const manifest = path.join(pkg, "package.json")
+  if (!fs.existsSync(manifest)) continue
+  const parsed = JSON.parse(fs.readFileSync(manifest, "utf8"))
+  if (parsed.dsh?.client && !fs.existsSync(path.join(pkg, "lib/client.js"))) missing.push(dir)
+}
+if (missing.length > 0) console.log(`pnpm run build (client bundles missing: ${missing.join(", ")})`)
+' "$DSH_REPO")"
+[ -z "$preflight" ] || die "$DSH_REPO is not ready to boot: run '$preflight' there first"
+
 # --- Optional host toolchains -------------------------------------------------
 # Each discovery leaves DSH_HOST_*_HOME empty when the toolchain is absent:
 # an empty value drops the container mount, the PATH entry, and the entrypoint
@@ -199,11 +220,16 @@ fi
 "${compose_cmd[@]}" "${compose_files[@]}" up -d --force-recreate "$@"
 proxy="http://127.0.0.1:${DSH_PUBLIC_PORT}"
 proxy_ready=
-for _ in {1..10}; do
+# The auth-proxy binds only after the dsh healthcheck passes, and a cold
+# `pnpm dsh` boot (tsx compiling the checkout) can take tens of seconds.
+for _ in {1..45}; do
   if curl -fsS -o /dev/null "$proxy/" 2>/dev/null; then proxy_ready=1; break; fi
   sleep 1
 done
-[ -n "$proxy_ready" ] || die "proxy did not start at $proxy"
+if [ -z "$proxy_ready" ]; then
+  "${compose_cmd[@]}" -f docker/docker-compose.yml logs --tail 30 dsh >&2 || true
+  die "proxy did not start at $proxy"
+fi
 probe=( -sS -o /dev/null -w '%{http_code}' -X POST "$proxy/api/settings.describe" -H "Host: $magicdns" -H "Origin: https://$magicdns" -H 'content-type: application/json' --data '{}' )
 denied="$(curl "${probe[@]}" -H 'Tailscale-User-Login: unauthorized@example.invalid')"
 allowed="$(curl "${probe[@]}" -H "Tailscale-User-Login: $TAILSCALE_OWNER")"
