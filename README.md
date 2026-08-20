@@ -36,16 +36,19 @@ pnpm dsh web
 
 `pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
 
-### Run the Web UI over Tailscale (`run-web.sh`)
+### Run the Web UI as a host service (`run-web.sh`)
 
-On a Tailscale-connected machine, [run-web.sh](run-web.sh) serves a source checkout of the Web UI to the tailnet — over HTTP via the tailnet IP, over HTTPS via MagicDNS, and locally at `http://127.0.0.1:4080/`:
+On a Tailscale-connected Fedora or Ubuntu host, [run-web.sh](run-web.sh) installs a systemd service that runs the source checkout as your non-root user, starts at boot, restarts after failures, and publishes the UI over HTTP via the tailnet IP and HTTPS via MagicDNS:
 
 ```sh
 git clone https://github.com/deepseek-ai/deepseek-harness.git
 cd deepseek-harness
-pnpm install
 ./run-web.sh
 ```
+
+The installer enables the repository's pinned pnpm through Corepack when needed, installs dependencies, builds all artifacts, requests `sudo` for the system unit, enables `tailscaled`, grants your account the Tailscale operator role, verifies readiness, and leaves the DSH process itself unprivileged. Run `./run-web.sh status`, `logs`, `restart`, `stop`, or `uninstall` to manage it. Service ports and the startup timeout live in `/etc/dsh-web.env`; restart the service after editing that root-owned file. `./run-web.sh run` keeps a foreground, non-persistent mode for diagnostics.
+
+The service owns its configured Tailscale Serve ports and removes those routes when it stops. Installation refuses to replace another Tailscale operator or pre-existing Serve routes on the same ports. Tailnet access is controlled by Tailscale policy; trusted-host validation is not user authentication.
 
 ### Run the Web UI in Docker (`run-docker.sh`)
 

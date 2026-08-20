@@ -1,93 +1,436 @@
 #!/usr/bin/env bash
-# Start the DeepSeek Harness web GUI and expose it to the tailnet.
-#
-# Serves through the tailnet IP over HTTP and its MagicDNS name over HTTPS,
-# plus locally at http://127.0.0.1:4080/.
-#
-# dsh web binds 127.0.0.1 by design (the app refuses --host 0.0.0.0 for
-# safety), so tailscale serve proxies the node's tailnet interface (port 80)
-# to the local server.
-#
-# Extra args are forwarded to the web app (e.g. --trusted-host).
+# Install and manage the source-built Web UI as a persistent systemd service.
 set -euo pipefail
-cd "$(dirname "$0")"
 
-PORT=4080
-SERVE_PORT=80
-HTTPS_PORT=443
+SERVICE_NAME=dsh-web.service
+CONFIG_FILE=/etc/dsh-web.env
+UNIT_FILE="/etc/systemd/system/$SERVICE_NAME"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
+cd "$SCRIPT_DIR"
 
-# Tailnet identity for the served URLs (empty when tailscale is unavailable).
-tailnet_ip="$(tailscale ip -4 2>/dev/null | head -n1 || true)"
-magicdns="$(tailscale status --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);console.log((j.Self?.DNSName??"").replace(/\.$/,""))}catch{}})' || true)"
+die() { echo "error: $*" >&2; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
 
-trusted_hosts=()
-[ -n "$tailnet_ip" ] && trusted_hosts+=("$tailnet_ip")
-[ -n "$magicdns" ] && trusted_hosts+=("$magicdns")
+usage() {
+  cat <<'EOF'
+Usage: ./run-web.sh [command]
 
-is_up() {
-  curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/" 2>/dev/null
+Install dependencies and build DeepSeek Harness from this checkout.
+Manage it as a reboot-persistent systemd service that runs directly on the host
+as the installing user and publishes the Web server through Tailscale Serve.
+
+Commands:
+  install     Install, enable, and start the service (default)
+  start       Start the installed service
+  stop        Stop the installed service
+  restart     Restart the installed service
+  status      Show service state and published URLs
+  logs        Follow service logs
+  uninstall   Stop, disable, and remove the service
+  run         Run in the foreground without installing a service
+  help        Show this help
+
+Configuration is stored in /etc/dsh-web.env. Supported settings:
+  DSH_WEB_PORT             Loopback Web port (default: 4080)
+  DSH_WEB_HTTP_PORT        Tailnet HTTP/TCP port (default: 80)
+  DSH_WEB_HTTPS_PORT       Tailnet HTTPS port (default: 443)
+  DSH_WEB_STARTUP_TIMEOUT  Readiness timeout in seconds (default: 90)
+EOF
 }
 
-is_tailnet_trusted() {
-  local authority status
-  for authority in "${trusted_hosts[@]}"; do
-    status="$(curl -sS -o /dev/null -w '%{http_code}' -H "Host: ${authority}" \
-      "http://127.0.0.1:${PORT}/api/__tailnet_probe__" 2>/dev/null)"
-    [ "$status" != 403 ] || return 1
-  done
+require_linux() {
+  [ "$(uname -s)" = Linux ] || die "run-web.sh requires Linux with systemd"
 }
 
-if is_up; then
-  if ! is_tailnet_trusted; then
-    echo "error: the dsh web process on port ${PORT} does not trust this tailnet address; stop it and rerun this script" >&2
-    exit 1
+validate_uint() {
+  local name="$1" value="$2" min="$3" max="$4"
+  [[ "$value" =~ ^[0-9]+$ ]] && (( 10#$value >= min && 10#$value <= max )) || \
+    die "$name must be an integer from $min to $max"
+}
+
+validate_systemd_value() {
+  local name="$1" value="$2"
+  [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || die "$name must not contain line breaks"
+}
+
+systemd_quote() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//%/%%}"
+  printf '"%s"' "$value"
+}
+
+service_user() {
+  if [ -n "${DSH_WEB_SERVICE_USER:-}" ]; then
+    printf '%s\n' "$DSH_WEB_SERVICE_USER"
+  elif [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+    printf '%s\n' "$SUDO_USER"
+  else
+    id -un
   fi
-  echo "dsh web already running on http://127.0.0.1:${PORT}/ - reusing it."
-  web_pid=""
-else
-  echo "Starting dsh web on http://127.0.0.1:${PORT}/ ..."
-  web_args=(--port "${PORT}" "$@")
-  [ "${#trusted_hosts[@]}" -eq 0 ] || web_args+=(--trusted-host "${trusted_hosts[@]}")
-  pnpm dsh web "${web_args[@]}" &
+}
+
+as_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  else
+    have sudo || die "sudo is required to manage the system service"
+    sudo env \
+      DSH_WEB_SERVICE_USER="$(id -un)" \
+      DSH_WEB_CALLER_PATH="$PATH" \
+      "$SCRIPT_PATH" "$@"
+  fi
+}
+
+user_tool() {
+  local user="$1" tool="$2" candidate=""
+  if [ "$user" = "$(id -un)" ]; then
+    candidate="$(command -v "$tool" 2>/dev/null || true)"
+  elif have runuser; then
+    candidate="$(runuser -u "$user" -- env HOME="$(user_home "$user")" PATH="${DSH_WEB_CALLER_PATH:-$PATH}:$(user_home "$user")/.local/share/pnpm:$(user_home "$user")/.local/bin" sh -c "command -v '$tool'" 2>/dev/null || true)"
+  fi
+  [ -n "$candidate" ] || return 1
+  case "$candidate" in
+    /*) printf '%s\n' "$candidate" ;;
+    *) printf '%s/%s\n' "$(cd "$(dirname "$candidate")" && pwd -P)" "$(basename "$candidate")" ;;
+  esac
+}
+
+user_home() {
+  local user="$1" home
+  have getent || die "getent executable not found on PATH"
+  home="$(getent passwd "$user" | cut -d: -f6)"
+  [ -n "$home" ] || die "home directory not found for user $user"
+  printf '%s\n' "$home"
+}
+
+ensure_user_pnpm() {
+  local user="$1" home="$2" node_bin="$3" pnpm_bin corepack_bin
+  if pnpm_bin="$(user_tool "$user" pnpm)"; then
+    printf '%s\n' "$pnpm_bin"
+    return
+  fi
+  corepack_bin="$(user_tool "$user" corepack)" || die "pnpm and Corepack are unavailable for $user; install pnpm and retry"
+  echo "Enabling the repository's pinned pnpm with Corepack ..." >&2
+  runuser -u "$user" -- mkdir -p "$home/.local/bin"
+  runuser -u "$user" -- env HOME="$home" PATH="$(dirname "$node_bin"):${DSH_WEB_CALLER_PATH:-$PATH}" \
+    "$corepack_bin" enable --install-directory "$home/.local/bin" || die "Corepack could not enable pnpm"
+  user_tool "$user" pnpm || die "Corepack did not create a pnpm executable"
+}
+
+render_unit() {
+  local user="$1" group="$2" home="$3" pnpm_bin="$4" node_bin="$5" service_path="$6"
+  local service_env_path
+  validate_systemd_value "service user" "$user"
+  validate_systemd_value "service group" "$group"
+  validate_systemd_value "home directory" "$home"
+  validate_systemd_value "pnpm path" "$pnpm_bin"
+  validate_systemd_value "node path" "$node_bin"
+  validate_systemd_value "launcher path" "$service_path"
+  validate_systemd_value "checkout path" "$SCRIPT_DIR"
+  validate_systemd_value "generator path" "$SCRIPT_PATH"
+  service_env_path="$(dirname "$pnpm_bin"):$(dirname "$node_bin"):$home/.local/share/pnpm:$home/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  cat <<EOF
+# Generated by $SCRIPT_PATH. Re-run './run-web.sh install' after moving the checkout.
+[Unit]
+Description=DeepSeek Harness Web UI
+Wants=network-online.target
+After=network-online.target tailscaled.service
+Requires=tailscaled.service
+PartOf=tailscaled.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=$user
+Group=$group
+WorkingDirectory=$(systemd_quote "$SCRIPT_DIR")
+Environment=$(systemd_quote "HOME=$home")
+Environment=$(systemd_quote "USER=$user")
+Environment=$(systemd_quote "DSH_HOME=$home/.dsh")
+Environment=$(systemd_quote "PATH=$service_env_path")
+Environment=$(systemd_quote "DSH_WEB_PNPM=$pnpm_bin")
+EnvironmentFile=-$CONFIG_FILE
+ExecStart=$(systemd_quote "$service_path") __service
+Restart=always
+RestartSec=10s
+TimeoutStartSec=65min
+TimeoutStopSec=30s
+KillMode=mixed
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+check_operator() {
+  local user="$1" prefs operator
+  prefs="$(tailscale debug prefs 2>/dev/null)" || die "cannot inspect the current Tailscale operator"
+  operator="$(printf '%s' "$prefs" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);process.stdout.write(j.OperatorUser??"")})')" || die "Tailscale returned invalid preference JSON"
+  [ -z "$operator" ] || [ "$operator" = "$user" ] || die "Tailscale operator is already $operator; refusing to replace it with $user"
+}
+
+check_unowned_routes() {
+  [ ! -f "$UNIT_FILE" ] || return
+  local status occupied
+  status="$(tailscale serve status --json 2>/dev/null)" || die "cannot inspect existing Tailscale Serve routes"
+  occupied="$(printf '%s' "$status" | node -e '
+let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+  const j=JSON.parse(s), ports=new Set(process.argv.slice(1))
+  const tcp=j.TCP && typeof j.TCP==="object" ? Object.keys(j.TCP) : []
+  const web=j.Web && typeof j.Web==="object" ? Object.keys(j.Web).flatMap(k=>[k.split(":").at(-1)]) : []
+  process.stdout.write([...new Set([...tcp,...web].filter(p=>ports.has(p)))].join(" "))
+})' "${DSH_WEB_HTTP_PORT:-80}" "${DSH_WEB_HTTPS_PORT:-443}")" || die "Tailscale returned invalid Serve status JSON"
+  [ -z "$occupied" ] || die "Tailscale Serve already uses port(s) $occupied; remove those routes before installing"
+}
+
+write_default_config() {
+  if [ -e "$CONFIG_FILE" ]; then
+    [ -f "$CONFIG_FILE" ] && [ ! -L "$CONFIG_FILE" ] && [ "$(stat -c %u "$CONFIG_FILE")" = 0 ] || \
+      die "$CONFIG_FILE must be a regular root-owned file"
+    local mode
+    mode="$(stat -c %a "$CONFIG_FILE")"
+    (( (8#$mode & 8#022) == 0 )) || die "$CONFIG_FILE must not be group- or world-writable"
+    return
+  fi
+  cat >"$CONFIG_FILE" <<'EOF'
+# DeepSeek Harness Web service configuration.
+# Change a value, then run: sudo systemctl restart dsh-web
+DSH_WEB_PORT=4080
+DSH_WEB_HTTP_PORT=80
+DSH_WEB_HTTPS_PORT=443
+DSH_WEB_STARTUP_TIMEOUT=90
+EOF
+  chmod 0644 "$CONFIG_FILE"
+}
+
+load_config_values() {
+  local name value max
+  for name in DSH_WEB_PORT DSH_WEB_HTTP_PORT DSH_WEB_HTTPS_PORT DSH_WEB_STARTUP_TIMEOUT; do
+    value="$(sed -n "s/^${name}=//p" "$CONFIG_FILE")"
+    [ "$(printf '%s\n' "$value" | wc -l)" -eq 1 ] || die "$CONFIG_FILE must define $name exactly once"
+    max=65535
+    [ "$name" != DSH_WEB_STARTUP_TIMEOUT ] || max=3600
+    validate_uint "$name" "$value" 1 "$max"
+    printf -v "$name" '%s' "$value"
+    export "$name"
+  done
+  (( 10#$DSH_WEB_HTTP_PORT != 10#$DSH_WEB_HTTPS_PORT )) || die "DSH_WEB_HTTP_PORT and DSH_WEB_HTTPS_PORT must differ"
+}
+
+preflight_checkout() {
+  local pnpm_bin="$1"
+  [ -d "$SCRIPT_DIR/node_modules" ] || die "$SCRIPT_DIR has no installed dependencies"
+  [ -f "$SCRIPT_DIR/apps/web/dist/index.html" ] || die "$SCRIPT_DIR has no built Web frontend"
+  [ -x "$pnpm_bin" ] || die "pnpm executable is not runnable: $pnpm_bin"
+}
+
+prepare_checkout() {
+  local user="$1" home="$2" pnpm_bin="$3" node_bin="$4"
+  local build_path
+  build_path="$(dirname "$pnpm_bin"):$(dirname "$node_bin"):${DSH_WEB_CALLER_PATH:-$PATH}:$home/.local/share/pnpm:$home/.local/bin"
+  echo "Installing repository dependencies as $user ..."
+  runuser -u "$user" -- env HOME="$home" USER="$user" PATH="$build_path" \
+    "$pnpm_bin" --dir "$SCRIPT_DIR" install --frozen-lockfile || die "pnpm install failed"
+  echo "Building repository artifacts as $user ..."
+  runuser -u "$user" -- env HOME="$home" USER="$user" PATH="$build_path" \
+    "$pnpm_bin" --dir "$SCRIPT_DIR" run build || die "pnpm run build failed"
+}
+
+install_service() {
+  [ "$(id -u)" -eq 0 ] || { as_root install; return; }
+  for tool in systemctl systemd-notify tailscale curl node flock getent runuser stat sed wc; do
+    have "$tool" || die "$tool executable not found on PATH"
+  done
+
+  local user group home pnpm_bin node_bin unit_tmp
+  user="$(service_user)"
+  [ "$user" != root ] || die "refusing to run the agent as root; invoke this script with sudo from the target user or set DSH_WEB_SERVICE_USER"
+  id "$user" >/dev/null 2>&1 || die "service user does not exist: $user"
+  group="$(id -gn "$user")"
+  home="$(user_home "$user")"
+  [ -d "$home" ] || die "home directory not found: $home"
+  node_bin="$(user_tool "$user" node)" || die "node is not available for $user; install Node.js and retry"
+  pnpm_bin="$(ensure_user_pnpm "$user" "$home" "$node_bin")"
+  runuser -u "$user" -- test -x "$SCRIPT_PATH" || die "$user cannot execute $SCRIPT_PATH"
+  runuser -u "$user" -- test -x "$pnpm_bin" || die "$user cannot execute $pnpm_bin"
+  runuser -u "$user" -- test -x "$node_bin" || die "$user cannot execute $node_bin"
+  prepare_checkout "$user" "$home" "$pnpm_bin" "$node_bin"
+  preflight_checkout "$pnpm_bin"
+  runuser -u "$user" -- test -r "$SCRIPT_DIR/apps/web/dist/index.html" || die "$user cannot read the built Web artifacts in $SCRIPT_DIR"
+
+  systemctl enable --now tailscaled.service >/dev/null || die "failed to enable and start tailscaled.service"
+  tailscale status >/dev/null 2>&1 || die "Tailscale is not connected; run 'sudo tailscale up' first"
+  write_default_config
+  load_config_values
+  check_operator "$user"
+  check_unowned_routes
+  tailscale set --operator="$user" || die "failed to grant the Tailscale operator role to $user"
+
+  unit_tmp="$(mktemp)"
+  trap 'rm -f "${unit_tmp:-}"' EXIT
+  render_unit "$user" "$group" "$home" "$pnpm_bin" "$node_bin" "$SCRIPT_PATH" >"$unit_tmp"
+  install -o root -g root -m 0644 "$unit_tmp" "$UNIT_FILE"
+  systemctl daemon-reload
+  if ! systemctl enable --now "$SERVICE_NAME"; then
+    systemctl status --no-pager --full "$SERVICE_NAME" || true
+    journalctl -u "$SERVICE_NAME" -n 50 --no-pager || true
+    die "failed to start $SERVICE_NAME"
+  fi
+  echo "Installed and started $SERVICE_NAME for $user."
+  show_urls
+  echo "Configuration: $CONFIG_FILE"
+  echo "Logs: ./run-web.sh logs"
+}
+
+systemctl_admin() {
+  local action="$1"
+  [ -f "$UNIT_FILE" ] || die "$SERVICE_NAME is not installed; run './run-web.sh install'"
+  if [ "$(id -u)" -eq 0 ]; then
+    systemctl "$action" "$SERVICE_NAME"
+  else
+    as_root "$action"
+  fi
+}
+
+uninstall_service() {
+  [ "$(id -u)" -eq 0 ] || { as_root uninstall; return; }
+  if [ -f "$UNIT_FILE" ]; then
+    systemctl disable --now "$SERVICE_NAME" || true
+    rm -f "$UNIT_FILE"
+    systemctl daemon-reload
+    systemctl reset-failed "$SERVICE_NAME" 2>/dev/null || true
+  fi
+  echo "Removed $SERVICE_NAME. Configuration remains at $CONFIG_FILE."
+}
+
+show_urls() {
+  local ip dns
+  ip="$(tailscale ip -4 2>/dev/null | head -n1 || true)"
+  dns="$(tailscale status --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);process.stdout.write((j.Self?.DNSName??"").replace(/\.$/,""))}catch{}})' || true)"
+  [ -n "$dns" ] && echo "Web UI: https://$dns:${DSH_WEB_HTTPS_PORT:-443}/" | sed 's/:443\//\//'
+  [ -n "$ip" ] && echo "Tailnet HTTP: http://$ip:${DSH_WEB_HTTP_PORT:-80}/" | sed 's/:80\//\//'
+  echo "Local: http://127.0.0.1:${DSH_WEB_PORT:-4080}/"
+}
+
+unpublish() {
+  tailscale serve --https="${DSH_WEB_HTTPS_PORT:-443}" off >/dev/null 2>&1 || true
+  tailscale serve --tcp="${DSH_WEB_HTTP_PORT:-80}" off >/dev/null 2>&1 || true
+}
+
+service_run() {
+  require_linux
+  local tool
+  for tool in node curl tailscale flock; do
+    have "$tool" || die "$tool executable not found on PATH"
+  done
+  local pnpm_bin="${DSH_WEB_PNPM:-}"
+  [ -n "$pnpm_bin" ] || pnpm_bin="$(command -v pnpm 2>/dev/null || true)"
+  [ -n "$pnpm_bin" ] || die "pnpm executable not found on PATH"
+  preflight_checkout "$pnpm_bin"
+
+  DSH_WEB_PORT="${DSH_WEB_PORT:-4080}"
+  DSH_WEB_HTTP_PORT="${DSH_WEB_HTTP_PORT:-80}"
+  DSH_WEB_HTTPS_PORT="${DSH_WEB_HTTPS_PORT:-443}"
+  DSH_WEB_STARTUP_TIMEOUT="${DSH_WEB_STARTUP_TIMEOUT:-90}"
+  validate_uint DSH_WEB_PORT "$DSH_WEB_PORT" 1 65535
+  validate_uint DSH_WEB_HTTP_PORT "$DSH_WEB_HTTP_PORT" 1 65535
+  validate_uint DSH_WEB_HTTPS_PORT "$DSH_WEB_HTTPS_PORT" 1 65535
+  validate_uint DSH_WEB_STARTUP_TIMEOUT "$DSH_WEB_STARTUP_TIMEOUT" 1 3600
+  (( 10#$DSH_WEB_HTTP_PORT != 10#$DSH_WEB_HTTPS_PORT )) || die "DSH_WEB_HTTP_PORT and DSH_WEB_HTTPS_PORT must differ"
+
+  exec 9<"$SCRIPT_PATH"
+  flock -n 9 || die "another run-web instance is already active"
+
+  local status_json tailnet_output tailnet_ip magicdns web_pid="" ready=""
+  status_json="$(tailscale status --json 2>/dev/null)" || die "Tailscale status unavailable; connect this host with 'tailscale up'"
+  tailnet_output="$(printf '%s' "$status_json" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log((j.Self?.DNSName??"").replace(/\.$/,""));console.log(j.BackendState??"")})')" || die "Tailscale returned invalid status JSON"
+  magicdns="${tailnet_output%%$'\n'*}"
+  [ "$tailnet_output" != "$magicdns" ] && [ "${tailnet_output#*$'\n'}" = Running ] || die "Tailscale is not connected"
+  [ -n "$magicdns" ] || die "Tailscale MagicDNS name unavailable"
+  tailnet_ip="$(tailscale ip -4 2>/dev/null | head -n1 || true)"
+  [ -n "$tailnet_ip" ] || die "Tailscale IPv4 address unavailable"
+
+  cleanup() {
+    trap - INT TERM EXIT
+    unpublish
+    if [ -n "$web_pid" ] && kill -0 "$web_pid" 2>/dev/null; then
+      kill "$web_pid" 2>/dev/null || true
+      wait "$web_pid" 2>/dev/null || true
+    fi
+  }
+  trap cleanup INT TERM EXIT
+
+  local web_args=(dsh web --no-open --port "$DSH_WEB_PORT" --trusted-host "$magicdns")
+  [ -z "$tailnet_ip" ] || web_args+=(--trusted-host "$tailnet_ip")
+  "$pnpm_bin" "${web_args[@]}" &
   web_pid=$!
-  for _ in $(seq 1 30); do
-    is_up && break
+
+  local attempt probe_status
+  for ((attempt = 0; attempt < 10#$DSH_WEB_STARTUP_TIMEOUT; attempt++)); do
+    kill -0 "$web_pid" 2>/dev/null || { wait "$web_pid" || true; die "dsh web exited before becoming ready"; }
+    probe_status="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+      "http://127.0.0.1:$DSH_WEB_PORT/api/settings.describe" \
+      -H "Host: $magicdns" -H "Origin: https://$magicdns" \
+      -H 'content-type: application/json' --data '{}' 2>/dev/null || true)"
+    if [ "$probe_status" = 200 ]; then ready=1; break; fi
     sleep 1
   done
-  is_up || { echo "error: dsh web did not come up on port ${PORT} in time" >&2; kill "$web_pid" 2>/dev/null || true; exit 1; }
-fi
+  [ -n "$ready" ] || die "dsh web did not become ready within ${DSH_WEB_STARTUP_TIMEOUT}s"
 
-# Raw TCP forwarding serves the tailnet IP; HTTPS gives browsers the canonical
-# secure MagicDNS origin. HTTP proxy mode is cleared because it masks the IP
-# route with 404 responses.
-serve_tailnet() {
-  tailscale serve --http="${SERVE_PORT}" off >/dev/null 2>&1 || true
-  tailscale serve --yes --bg --tcp="${SERVE_PORT}" "tcp://127.0.0.1:${PORT}"
-  tailscale serve --yes --bg --https="${HTTPS_PORT}" "http://127.0.0.1:${PORT}"
+  tailscale serve --http="$DSH_WEB_HTTP_PORT" off >/dev/null 2>&1 || true
+  tailscale serve --yes --bg --tcp="$DSH_WEB_HTTP_PORT" "tcp://127.0.0.1:$DSH_WEB_PORT" || die "failed to publish tailnet HTTP"
+  tailscale serve --yes --bg --https="$DSH_WEB_HTTPS_PORT" "http://127.0.0.1:$DSH_WEB_PORT" || die "failed to publish tailnet HTTPS"
+  ready=""
+  for ((attempt = 0; attempt < 15; attempt++)); do
+    if curl -fsS --max-time 5 -o /dev/null "http://$tailnet_ip:$DSH_WEB_HTTP_PORT/" 2>/dev/null && \
+       curl -fsS --max-time 5 -o /dev/null "https://$magicdns:$DSH_WEB_HTTPS_PORT/" 2>/dev/null; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  [ -n "$ready" ] || die "Tailscale Serve routes did not become reachable"
+  show_urls
+  if [ -n "${NOTIFY_SOCKET:-}" ]; then
+    systemd-notify --ready --status="Serving https://$magicdns/" || die "failed to report readiness to systemd"
+  fi
+
+  set +e
+  wait "$web_pid"
+  local web_status=$?
+  set -e
+  web_pid=""
+  return "$web_status"
 }
 
-# Without the tailscale operator role, the CLI needs root; grant it once via
-# sudo (prompts for your password) so subsequent runs need no sudo.
-if ! serve_tailnet 2>/dev/null; then
-  echo "tailscale serve needs the operator role; requesting it via sudo (one-time)..."
-  sudo tailscale set --operator="$USER"
-  serve_tailnet
-fi
+main() {
+  require_linux
+  local command="${1:-install}"
+  if [ "$command" = __render_unit ]; then
+    [ "$#" -eq 7 ] || die "__render_unit requires user, group, home, pnpm, node, and launcher paths"
+    render_unit "$2" "$3" "$4" "$5" "$6" "$7"
+    return
+  fi
+  [ "$#" -le 1 ] || die "unexpected arguments; run './run-web.sh help'"
+  case "$command" in
+    install) install_service ;;
+    start|stop|restart) systemctl_admin "$command" ;;
+    status)
+      systemctl status --no-pager --full "$SERVICE_NAME" || true
+      [ ! -f "$CONFIG_FILE" ] || load_config_values
+      show_urls
+      ;;
+    logs) exec journalctl -u "$SERVICE_NAME" -f -n 100 ;;
+    uninstall) uninstall_service ;;
+    run|__service) service_run ;;
+    help|-h|--help) usage ;;
+    *) die "unknown command: $command (run './run-web.sh help')" ;;
+  esac
+}
 
-echo
-echo "dsh web is live on your tailnet:"
-[ -n "$magicdns" ] && echo "  https://${magicdns}/"
-[ -n "$tailnet_ip" ] && echo "  http://${tailnet_ip}/"
-echo "  (local: http://127.0.0.1:${PORT}/)"
-echo
-echo "Remove the tailnet exposure with:"
-echo "  tailscale serve --https=${HTTPS_PORT} off"
-echo "  tailscale serve --tcp=${SERVE_PORT} off"
-
-if [ -n "$web_pid" ]; then
-  trap 'kill "$web_pid" 2>/dev/null || true' INT TERM EXIT
-  wait "$web_pid"
-else
-  # Reusing an existing instance: keep the script attached until Ctrl+C.
-  while :; do sleep 3600; done
-fi
+main "$@"

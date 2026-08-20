@@ -36,16 +36,19 @@ pnpm dsh web
 
 `pnpm run build` 会准备仓库产物。`pnpm dsh web` 会直接使用这些已构建产物，不会重新构建。
 
-### 通过 Tailscale 运行 Web UI（`run-web.sh`）
+### 将 Web UI 作为宿主机服务运行（`run-web.sh`）
 
-在已连接 Tailscale 的机器上，[run-web.sh](run-web.sh) 将源码构建的 Web UI 暴露给 tailnet——通过 tailnet IP 走 HTTP、通过 MagicDNS 走 HTTPS，本地地址为 `http://127.0.0.1:4080/`：
+在已连接 Tailscale 的 Fedora 或 Ubuntu 宿主机上，[run-web.sh](run-web.sh) 会安装 systemd 服务：服务以你的非 root 用户身份运行源码检出，在开机时启动、故障后重启，并通过 tailnet IP 的 HTTP 和 MagicDNS 的 HTTPS 发布 UI：
 
 ```sh
 git clone https://github.com/deepseek-ai/deepseek-harness.git
 cd deepseek-harness
-pnpm install
 ./run-web.sh
 ```
+
+安装器会在需要时通过 Corepack 启用仓库固定版本的 pnpm、安装依赖、构建全部产物、请求 `sudo` 以写入系统服务、启用 `tailscaled`、向你的账户授予 Tailscale operator 角色并验证就绪状态；DSH 进程本身始终以非特权用户运行。使用 `./run-web.sh status`、`logs`、`restart`、`stop` 或 `uninstall` 管理服务。服务端口与启动超时保存在 `/etc/dsh-web.env`；编辑这个 root 所有的文件后需要重启服务。`./run-web.sh run` 提供用于诊断的前台非持久模式。
+
+服务拥有所配置的 Tailscale Serve 端口，并在停止时移除对应路由。若另一个 Tailscale operator 已存在，或相同端口已有 Serve 路由，安装会拒绝覆盖。Tailnet 访问权限由 Tailscale 策略控制；trusted-host 校验不是用户身份认证。
 
 ### 通过 Docker 运行 Web UI（`run-docker.sh`）
 
