@@ -38,7 +38,9 @@ The image installs the published `@deepseek-ai/dsh` package, its runtime peers, 
 The launcher requires:
 
 - a host already logged into Tailscale; and
-- Docker, Node.js, and curl on `PATH`.
+- a container runtime plus Compose — Docker, or podman with `docker-compose`/`podman-compose` — as well as Node.js and curl on `PATH`.
+
+The launcher prefers Docker when present and otherwise uses podman; on SELinux hosts (Fedora enables it by default) both services set `label=disable` so the container may read the bind-mounted home and toolchains without relabeling them. Under rootless podman the launcher's generated override adds `userns_mode: keep-id`, which maps the invoking user's uid 1:1 into the container so files the agent creates in the mounted home belong to that user on the host. The container drops to the uid and gid that own `DSH_HOST_USER_HOME` (`DSH_UID`/`DSH_GID`), so hosts whose user is not uid 1000 work unchanged.
 
 The development toolchains are optional. The launcher discovers Flutter and Java from `PATH`, and the Android SDK from `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Android/Sdk`, `~/android-sdk`, `/usr/lib/android-sdk`, or `/opt/android-sdk`. A missing toolchain prints a warning and launches without it: the container then has no `flutter`, `adb`, or `java`, and no related mounts. An override that names a path without the expected executable (`DSH_HOST_FLUTTER_HOME`, `DSH_HOST_ANDROID_HOME`, `DSH_HOST_JAVA_HOME`) is skipped the same way.
 
@@ -47,6 +49,16 @@ Allow the current user to manage Tailscale Serve once if required:
 ```sh
 sudo tailscale set --operator="$USER"
 ```
+
+### Fedora notes
+
+```sh
+sudo dnf install podman docker-compose   # rootless podman + compose provider
+systemctl --user enable --now podman.socket   # lets docker-compose talk to podman
+loginctl enable-linger "$USER"           # keeps containers running after logout
+```
+
+Rootless podman shares the host network namespace in `network_mode: host`, so both loopback services and the host's `tailscaled` interoperate exactly as under Docker. The `podman-docker` alias package is not required; if you install it, prefer invoking `podman` directly so the launcher detects rootless mode and applies `keep-id`.
 
 ## Run on the host's Tailscale node
 
@@ -88,6 +100,7 @@ A direct Compose invocation skips the launcher-generated override file, so it mo
 | `DSH_PUBLIC_PORT`       | `4080`                  | Host loopback port for Caddy and Tailscale Serve              |
 | `DSH_BACKEND_PORT`      | `4081`                  | Host loopback port for `dsh web`                              |
 | `DSH_HOST_USER_HOME`    | `$HOME` in the launcher | Host home mounted read-write at the same container path       |
+| `DSH_UID` / `DSH_GID`   | owner of the host home  | Container uid/gid for the harness process (set by the launcher) |
 | `DSH_HOST_WORKSPACE`    | `$HOME/git`, else `$HOME` | Agent working directory inside the container              |
 | `DSH_HOST_FLUTTER_HOME` | derived from `flutter` on `PATH` | Flutter SDK path; empty when absent, leaving the container without Flutter |
 | `DSH_HOST_ANDROID_HOME` | discovered (see Host requirements) | Android SDK path; empty when absent, leaving the container without `adb` |

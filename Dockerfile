@@ -30,10 +30,18 @@ ENV NODE_ENV=production \
     HOME=/home/node \
     PATH=/usr/local/bin:/usr/bin:/bin
 
-# The harness runs as the base image's unprivileged 'node' user (uid 1000);
-# tailscaled (started by the entrypoint when a key is set) runs as root in this
-# same process tree. The build host may sit on a slow or flaky uplink; mirror
-# timeouts are transient, so retry the package fetch a few times before giving up.
+# OCI annotations; version tracks the pinned release for `docker inspect`.
+LABEL org.opencontainers.image.title="DeepSeek Harness" \
+      org.opencontainers.image.description="Agent harness container: browser UI behind a Tailscale-identity-aware proxy" \
+      org.opencontainers.image.version="${DSH_VERSION}" \
+      org.opencontainers.image.source="https://github.com/TrebuchetDynamics/deepseek-harness" \
+      org.opencontainers.image.licenses=MIT
+
+# The harness runs as the uid/gid from DSH_UID/DSH_GID (see dsh-entrypoint.sh);
+# uid 1000 is only the standalone default. tailscaled (started by the
+# entrypoint when a key is set) runs as root in this same process tree. The
+# build host may sit on a slow or flaky uplink; mirror timeouts are transient,
+# so retry the package fetch a few times before giving up.
 RUN i=0; until apt-get update && apt-get install -y --no-install-recommends bash curl ca-certificates util-linux git tzdata; do \
       i=$((i+1)); [ "$i" -ge 6 ] && { echo "apt-get failed after 6 attempts" >&2; exit 1; }; sleep 15; \
     done \
@@ -44,11 +52,13 @@ RUN i=0; until apt-get update && apt-get install -y --no-install-recommends bash
 # The published CLI plus its workspace peers (web-app, web-frontend dist,
 # native addons) install as one package; version-pinned to the fork.
 # npm 11 blocks install scripts by default; the natives (node-pty terminal,
-# koffi LLM client binding, dsh-subprocess-local) need theirs run.
-RUN npm install -g --no-audit --no-fund \
+# koffi LLM client binding, dsh-subprocess-local) need theirs run. The cache
+# mount keeps the ~90 MB download across rebuilds (run-docker.sh builds with
+# --no-cache) and never enters the image layer.
+RUN --mount=type=cache,target=/root/.npm \
+    npm install -g --no-audit --no-fund \
       --allow-scripts=node-pty,koffi,@deepseek-ai/dsh-subprocess-local,@google/genai,protobufjs \
-      "pnpm@${PNPM_VERSION}" "@deepseek-ai/dsh@${DSH_VERSION}" \
- && rm -rf ~/.npm
+      "pnpm@${PNPM_VERSION}" "@deepseek-ai/dsh@${DSH_VERSION}"
 
 # --chmod so the entrypoint stays executable even if the source file's mode is not.
 COPY --chmod=755 docker/dsh-entrypoint.sh /usr/local/bin/dsh-entrypoint.sh
@@ -60,6 +70,7 @@ WORKDIR /workspace
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD curl -fsS http://127.0.0.1:${DSH_PORT:-3080}/ >/dev/null || exit 1
 
-VOLUME ["/dsh-home", "/workspace", "/var/lib/tailscale"]
+# No VOLUME declarations: compose owns state (the tsstate named volume);
+# anonymous volumes would silently accumulate on every standalone relaunch.
 
 ENTRYPOINT ["/usr/local/bin/dsh-entrypoint.sh"]

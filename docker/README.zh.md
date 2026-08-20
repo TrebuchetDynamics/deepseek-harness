@@ -38,7 +38,9 @@ docker build -t dsh-tailscale:local -f Dockerfile .
 启动器要求：
 
 - 宿主已登录 Tailscale；以及
-- `PATH` 上存在 Docker、Node.js 和 curl。
+- 容器运行时加 Compose —— Docker，或 podman 加 `docker-compose`/`podman-compose` —— 且 `PATH` 上存在 Node.js 和 curl。
+
+启动器优先使用 Docker，其次使用 podman；在 SELinux 宿主（Fedora 默认开启）上，两个服务都设置 `label=disable`，使容器无需重打标签即可读写挂载的 home 与工具链。rootless podman 下，启动器生成的 override 追加 `userns_mode: keep-id`，把当前用户的 uid 一一映射进容器，agent 在挂载 home 中创建的文件在宿主上仍属于该用户。容器以 `DSH_HOST_USER_HOME` 属主的 uid/gid（`DSH_UID`/`DSH_GID`）运行，宿主用户不是 uid 1000 时也无需任何调整。
 
 开发工具链是可选的。启动器从 `PATH` 发现 Flutter 与 Java，并按 `$ANDROID_HOME`、`$ANDROID_SDK_ROOT`、`~/Android/Sdk`、`~/android-sdk`、`/usr/lib/android-sdk`、`/opt/android-sdk` 的顺序发现 Android SDK。缺失的工具链只产生警告并以无该工具链的方式启动：容器内随后没有 `flutter`、`adb` 或 `java`，也没有对应挂载。覆盖变量（`DSH_HOST_FLUTTER_HOME`、`DSH_HOST_ANDROID_HOME`、`DSH_HOST_JAVA_HOME`）指向的路径缺少预期可执行文件时，同样被跳过。
 
@@ -47,6 +49,16 @@ docker build -t dsh-tailscale:local -f Dockerfile .
 ```sh
 sudo tailscale set --operator="$USER"
 ```
+
+### Fedora 说明
+
+```sh
+sudo dnf install podman docker-compose   # rootless podman + compose provider
+systemctl --user enable --now podman.socket   # lets docker-compose talk to podman
+loginctl enable-linger "$USER"           # keeps containers running after logout
+```
+
+rootless podman 在 `network_mode: host` 下共享宿主网络命名空间，两个回环服务与宿主 `tailscaled` 的交互与 Docker 下完全一致。无需安装 `podman-docker` 别名包；若安装了它，请直接调用 `podman`，以便启动器识别 rootless 模式并应用 `keep-id`。
 
 ## 在宿主的 Tailscale 节点上运行
 
@@ -88,6 +100,7 @@ docker compose -f docker/docker-compose.yml up -d --build
 | `DSH_PUBLIC_PORT`       | `4080`              | Caddy 与 Tailscale Serve 使用的宿主回环端口   |
 | `DSH_BACKEND_PORT`      | `4081`              | `dsh web` 使用的宿主回环端口                  |
 | `DSH_HOST_USER_HOME`    | 启动器中为 `$HOME`  | 以相同容器路径读写挂载的宿主 home             |
+| `DSH_UID` / `DSH_GID`   | 宿主 home 的属主    | harness 进程在容器内的 uid/gid（启动器设置） |
 | `DSH_HOST_WORKSPACE`    | `$HOME/git`，缺失时 `$HOME` | 容器内 agent 的工作目录             |
 | `DSH_HOST_FLUTTER_HOME` | 从 `PATH` 上的 `flutter` 推导 | Flutter SDK 路径；缺失时为空，容器内没有 Flutter |
 | `DSH_HOST_ANDROID_HOME` | 自动发现（见宿主要求） | Android SDK 路径；缺失时为空，容器内没有 `adb` |

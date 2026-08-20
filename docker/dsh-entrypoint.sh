@@ -20,13 +20,19 @@
 #                     `pnpm dsh`; otherwise use the published CLI
 #   DSH_TRUSTED_HOSTS extra /api authorities (space or comma separated),
 #                     appended to the derived tailnet hostname
+#   DSH_UID           uid the harness drops to (default 1000)
+#   DSH_GID           gid the harness drops to (default 1000)
 #
-# The application runs as the unprivileged 'node' user (uid 1000);
-# tailscaled (started when a key is set) runs as root in this same process tree.
+# The application runs as the uid/gid given by DSH_UID/DSH_GID (run-docker.sh
+# sets them to the host home's owner, which need not match the image's 'node'
+# user); tailscaled (started when a key is set) runs as root in this same
+# process tree.
 set -euo pipefail
 
 DSH_PORT="${DSH_PORT:-3080}"
 DSH_WORKSPACE="${DSH_WORKSPACE:-/workspace}"
+DSH_UID="${DSH_UID:-1000}"
+DSH_GID="${DSH_GID:-1000}"
 TAILSCALE_STATE_DIR="${TAILSCALE_STATE_DIR:-/var/lib/tailscale}"
 TAILSCALE_SOCKET="/var/run/tailscale/tailscaled.sock"
 
@@ -81,6 +87,12 @@ join_tailnet() {
   echo "dsh over Tailscale: https://$self_dns/"
 }
 
+# Tailscale state dirs were chowned to the image's uid 1000 at build time; the
+# runtime user may differ, and only root (this shell) can fix ownership. Before
+# join_tailnet so tailscaled creates its files with the intended owner.
+[[ -d /var/run/tailscale ]] && chown -R "$DSH_UID:$DSH_GID" /var/run/tailscale
+[[ -d "$TAILSCALE_STATE_DIR" ]] && chown -R "$DSH_UID:$DSH_GID" "$TAILSCALE_STATE_DIR"
+
 if [[ -n "${TS_AUTHKEY:-}" ]]; then
   join_tailnet
 fi
@@ -110,6 +122,9 @@ else
   cd "$DSH_WORKSPACE"
   DSH_LAUNCH=(dsh)
 fi
-echo "dsh web on http://127.0.0.1:$DSH_PORT (loopback) from $(pwd)"
-exec setpriv --reuid=1000 --regid=1000 --init-groups \
+
+echo "dsh web on http://127.0.0.1:$DSH_PORT (loopback) from $(pwd) as uid=$DSH_UID gid=$DSH_GID"
+# --clear-groups (not --init-groups): DSH_UID usually has no passwd entry in
+# the image, and supplementary groups are not needed to write the mounted home.
+exec setpriv --reuid="$DSH_UID" --regid="$DSH_GID" --clear-groups \
   "${DSH_LAUNCH[@]}" "${DSH_ARGS[@]}"

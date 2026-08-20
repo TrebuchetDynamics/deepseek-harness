@@ -12,12 +12,12 @@ The toolchains are conveniences for the mounted agent, not preconditions for ser
 
 ## Decision
 
-`run-docker.sh` distinguishes hard prerequisites from optional toolchains. Hard prerequisites — `docker`, `node`, `curl`, `tailscale` on `PATH`, an existing host home, and an existing repository — still abort with `error:` messages. Everything else degrades with `warning:` messages and a one-line `host toolchains:` summary:
+`run-docker.sh` distinguishes hard prerequisites from optional toolchains. Hard prerequisites — a container runtime (Docker, or podman with a compose provider; see the 2026-08-20 portability note), `node`, `curl`, `tailscale` on `PATH`, an existing host home, and an existing repository — still abort with `error:` messages. Everything else degrades with `warning:` messages and a one-line `host toolchains:` summary:
 
 - Flutter and Java are derived from `PATH` when present; absence or an invalid explicit override empties the variable.
 - The Android SDK is discovered from `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Android/Sdk`, `~/android-sdk`, `/usr/lib/android-sdk`, `/opt/android-sdk` — first candidate with `platform-tools/adb` wins. `DSH_HOST_ANDROID_HOME` set to a path without `platform-tools/adb` warns and continues without the SDK.
 - `$HOME/git` missing falls back to `$HOME` as the workspace.
-- Docker is resolved through `command -v docker`, not a hardcoded path.
+- Docker is resolved through `command -v docker`, not a hardcoded path (a later note generalized this to docker-or-podman runtime detection).
 
 An empty toolchain variable propagates as an empty Compose value: the base `docker-compose.yml` interpolates `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `JAVA_HOME`, `FLUTTER_ROOT`, `DSH_WORKSPACE`, and `PATH` from the launcher's discovery (nested `${VAR:-…}` defaults cover the absent case), and `dsh-entrypoint.sh` already guards every symlink with `-x`, so an absent toolchain simply produces no `flutter`/`adb`/`java` in the container.
 
@@ -35,7 +35,7 @@ Optional bind mounts moved out of the base compose file into a per-launch overri
 
 ## Consequences
 
-The launcher now starts on hosts with any subset of the toolchains: a machine with only Flutter and Java (the reported case) launches with a single warning and no Android mounts, and a bare server without any toolchain or `~/git` still serves the GUI. On the original fully-equipped machine, behavior is unchanged — same environment values, same mounts including `/usr/lib/android-sdk` and the read-only JDK — verified by a stub-host suite (57 assertions: eight host scenarios spanning SDK-in-home, distro-only, ambient `ANDROID_HOME`, valid and invalid explicit overrides, bare host, plus a real-toolchain smoke run) and by `docker compose config` against the real Compose v5.5.0 binary confirming the nested-default interpolation and the base+override volume union with `:ro` preserved.
+The launcher now starts on hosts with any subset of the toolchains: a machine with only Flutter and Java (the reported case) launches with a single warning and no Android mounts, and a bare server without any toolchain or `~/git` still serves the GUI. On the original fully-equipped machine, behavior is unchanged — same environment values, same mounts including `/usr/lib/android-sdk` and the read-only JDK — verified by a stub-host suite (eight host scenarios spanning SDK-in-home, distro-only, ambient `ANDROID_HOME`, valid and invalid explicit overrides, bare host, plus a real-toolchain smoke run) and by `docker compose config` against the real Compose v5.5.0 binary confirming the nested-default interpolation and the base+override volume union with `:ro` preserved. The suite later grew to cover podman runtime detection and uid/gid mapping (see the 2026-08-20 portability note).
 
 The trade-offs: a user who expects `adb` in the container must read the `host toolchains:` line to notice its absence (the warning names every checked location), and own-node Compose invocations no longer get toolchain mounts for free — they must add them or use `run-docker.sh`. Toolchain discovery remains a shell heuristic: a host whose SDK lives outside the candidate list must set `DSH_HOST_ANDROID_HOME` explicitly, and an invalid explicit override is skipped with a warning rather than failing, because it names a convenience, not a precondition.
 
