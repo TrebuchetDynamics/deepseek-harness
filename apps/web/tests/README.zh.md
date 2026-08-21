@@ -5,7 +5,7 @@
 这些测试在进程内启动真实的 web 组合，并用真实 Chromium 通过真实 HTTP 驱动它。该 lane
 的运行机制——模式、fixture、golden，以及与 `dsh web` 之间刻意保留的组合差异——记录在
 [`scaffold.ts`](scaffold.ts) 和
-[浏览器 e2e Agent Note](../../../.agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md)中。
+[浏览器 e2e Agent Note](../../../.agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.zh.md)中。
 
 ## 这些是 Host 面的测试
 
@@ -47,5 +47,5 @@ docker/browser-e2e/run.sh --privileged
 
 镜像是内嵌精确 lockfile Chromium 及其 OS 依赖；包装脚本绑定当前检出、安装、构建，
 并以 `replay` 模式运行车道。显式特权用于运行嵌套沙箱测试。参见
-[docker/browser-e2e](../../../docker/browser-e2e/README.md) 了解 `record` /
+[docker/browser-e2e](../../../docker/browser-e2e/README.zh.md) 了解 `record` /
 `refresh` 模式、按需开启的主机访问旗标以及专属 CI 作业。

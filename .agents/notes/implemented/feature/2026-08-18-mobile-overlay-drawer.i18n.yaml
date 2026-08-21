@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-mobile-overlay-drawer.md
 2026-08-18-mobile-overlay-drawer.md: 3511792828d6ffecc81c577b1679b19d313213f9
-2026-08-18-mobile-overlay-drawer.zh.md: 64cbac871020ccc7f8d3f4a95ce778b064152ce1
+2026-08-18-mobile-overlay-drawer.zh.md: f5f0e6ea22309eb07d1c03c0de659af989b33b3f

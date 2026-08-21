@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-[真实浏览器 Web e2e 车道](../../apps/web/tests/README.md)（`pnpm run test:web`）
+[真实浏览器 Web e2e 车道](../../apps/web/tests/README.zh.md)（`pnpm run test:web`）
 用真实 Chromium 驱动整套组装好的 Web 链路。它需要一个可用的 Chromium 渲染器，
 以及标准 Playwright Chromium 依赖的 OS 库。贡献者的环境——通常是免 root 的开发
 容器——可能两者都没有，这会彻底阻断该车道，即便仓库其余测试都正常。
@@ -59,7 +59,7 @@ pnpm install --frozen-lockfile && pnpm run test:web
 - `refresh`——无密钥地重写已提交的 aria golden。
 
 CI 绝不运行 `record` 或 `refresh`；其强制 `replay`（见
-[browser-snapshot CI gate](../../.agents/notes/implemented/testing/2026-07-30-web-browser-snapshot-ci-gate.md)）。
+[browser-snapshot CI gate](../../.agents/notes/implemented/testing/2026-07-30-web-browser-snapshot-ci-gate.zh.md)）。
 
 ## 容器特权与网络
 

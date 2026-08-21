@@ -87,8 +87,8 @@ export function apply(ctx: ClientContext): void {
     schema,
     t,
   })
-  // The scope's own memory mode is what keeps a remote browser process-local,
-  // so the store needs no isLoopback branch of its own.
+  // Explicit memory-mode consumers remain process-local; production browsers
+  // use Host persistence and let Host authorization decide access.
   const welcomeController = new WelcomeNoticeStore(ctx.settingsScope.bind({
     namespace: WELCOME_NOTICE_SETTINGS_NAMESPACE,
     decode: decodeWelcomeSection,
@@ -108,7 +108,7 @@ export function apply(ctx: ClientContext): void {
     const refreshModels = (): void => { refreshIfLoaded(controller) }
     const disposers = [
       ctx.remote.$on('settings/document-updated', () => { refreshModels() }),
-      ctx.remote.$on('credentials/updated', refreshModels),
+      ctx.remote.$on('credentials/reference-updated', refreshModels),
       ctx.remote.$on('llm/adapters-updated', refreshModels),
       ctx.on('connection/reset', refreshModels),
     ]

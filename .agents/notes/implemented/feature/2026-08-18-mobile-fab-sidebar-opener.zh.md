@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-08-18-mobile-fab-sidebar-opener.md) | 中文
 
-部分取代 [移动端覆盖式抽屉](2026-08-18-mobile-overlay-drawer.md)：在窄屏下，关闭态现在完全隐藏（无控制栏），由浮动按钮唤起；其中描述的抽屉＋变暗背景覆盖行为保持不变。
+部分取代 [移动端覆盖式抽屉](2026-08-18-mobile-overlay-drawer.zh.md)：在窄屏下，关闭态现在完全隐藏（无控制栏），由浮动按钮唤起；其中描述的抽屉＋变暗背景覆盖行为保持不变。
 
 ## 问题
 

@@ -4,9 +4,9 @@ Status: implemented
 
 [English](2026-08-18-mobile-overlay-drawer.md) | 中文
 
-取代 [移动端侧边栏轻触关闭](2026-08-18-mobile-sidebar-light-dismiss.md) 中"透明背景"的备选方案理由；其中点击外部／Escape 的关闭机制不变。
+取代 [移动端侧边栏轻触关闭](2026-08-18-mobile-sidebar-light-dismiss.zh.md) 中"透明背景"的备选方案理由；其中点击外部／Escape 的关闭机制不变。
 
-部分被 [移动端侧边栏浮动唤起按钮](2026-08-18-mobile-fab-sidebar-opener.md) 取代：窄屏关闭态现在完全隐藏（无 56px 控制栏），改由浮动按钮唤起；本文所述的抽屉覆盖行为不变。
+部分被 [移动端侧边栏浮动唤起按钮](2026-08-18-mobile-fab-sidebar-opener.zh.md) 取代：窄屏关闭态现在完全隐藏（无 56px 控制栏），改由浮动按钮唤起；本文所述的抽屉覆盖行为不变。
 
 ## 问题
 

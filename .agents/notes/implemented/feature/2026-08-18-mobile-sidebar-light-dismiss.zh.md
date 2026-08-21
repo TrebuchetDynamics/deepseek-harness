@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-08-18-mobile-sidebar-light-dismiss.md) | 中文
 
-部分被 [移动端覆盖式抽屉](2026-08-18-mobile-overlay-drawer.md) 取代：背景层现在会调暗覆盖式抽屉后的整个画面；本文所述的关闭机制不变。
+部分被 [移动端覆盖式抽屉](2026-08-18-mobile-overlay-drawer.zh.md) 取代：背景层现在会调暗覆盖式抽屉后的整个画面；本文所述的关闭机制不变。
 
 ## 问题
 

@@ -2,7 +2,7 @@
 
 Status: implemented
 
-中文 | [English](2026-08-18-session-title-latest-message-plugin.md)
+[English](2026-08-18-session-title-latest-message-plugin.md) | 中文
 
 ## 问题
 

@@ -6,13 +6,13 @@ Status: implemented
 
 ## Problem
 
-[无密钥 Web 浏览器 e2e 车道](2026-07-24-web-gui-browser-e2e-lane.md)（`pnpm run test:web`）驱动真实 Chromium，因此需要可用的浏览器渲染器，以及 lockfile 中 Playwright Chromium 所依赖的 OS 库。贡献者的环境——最常见的是免 root 的开发容器——可能两者都没有，于是即便仓库其余测试全部通过，该车道在那里也无法运行。原生 CI gate（`.github/workflows/ci.yml`）在 runner 上预置 Chromium，证明了车道在 CI 中可用，但贡献者仍没有可本地运行的方式，CI 自身也没有任何东西去验证一个可重现、预构建的浏览器运行时。
+[无密钥 Web 浏览器 e2e 车道](2026-07-24-web-gui-browser-e2e-lane.zh.md)（`pnpm run test:web`）驱动真实 Chromium，因此需要可用的浏览器渲染器，以及 lockfile 中 Playwright Chromium 所依赖的 OS 库。贡献者的环境——最常见的是免 root 的开发容器——可能两者都没有，于是即便仓库其余测试全部通过，该车道在那里也无法运行。原生 CI gate（`.github/workflows/ci.yml`）在 runner 上预置 Chromium，证明了车道在 CI 中可用，但贡献者仍没有可本地运行的方式，CI 自身也没有任何东西去验证一个可重现、预构建的浏览器运行时。
 
 ## Decision
 
 Phase 1 交付一个可重现的 Docker 运行时，以及一个专门证明它的 CI 作业。`docker/browser-e2e/` 是工具链镜像（node 24-bookworm + pnpm + `playwright install --with-deps` 安装精确 lockfile 解析的 Chromium，setuid `chrome_sandbox`、Bubblewrap、全局可写 `/pnpm-store`）。它不内嵌检出：`docker/browser-e2e/run.sh` 与 CI 作业将仓库以读写方式挂载到 `/workspace`，并在其中运行 `pnpm install --frozen-lockfile && pnpm run test:web`。浏览器字节与 OS 库一次性预置于以 `pnpm-lock.yaml` 为键的层；工作区安装按次从当前检出进行，因此镜像保持确定性，而无需装入一棵易变的树。包装脚本以调用者 uid 和隔离 bridge 网络启动。完整车道的产品测试会创建嵌套文件系统沙箱，因此需要显式 `--privileged`；自定义 smoke 命令保持非特权。`--host-network` 单独用于访问仅主机可见的服务。
 
-`.github/workflows/browser-e2e-docker.yml` 构建镜像（GitHub 托管层缓存）并在其中无密钥地运行车道（`DSH_SNAPSHOT=replay`），绝不运行 `record` 或 `refresh`，与 [browser-snapshot CI gate 政策](2026-07-30-web-browser-snapshot-ci-gate.md) 一致。
+`.github/workflows/browser-e2e-docker.yml` 构建镜像（GitHub 托管层缓存）并在其中无密钥地运行车道（`DSH_SNAPSHOT=replay`），绝不运行 `record` 或 `refresh`，与 [browser-snapshot CI gate 政策](2026-07-30-web-browser-snapshot-ci-gate.zh.md) 一致。
 
 ### Scaffold 边界
 

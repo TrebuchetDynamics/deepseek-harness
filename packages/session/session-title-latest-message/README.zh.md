@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-session-title-latest-message
 
-中文 | [English](README.md)
+[English](README.md) | 中文
 
 可选的 `ctx.sessionTitle` 提供方：在每次新的可纳入人类消息后，将会话重命名为该消息的前几个词。它注册 `all-prompts` 节奏，并在每个新的人类提示词之后（包括子会话的提示词）启动一个新修订；更新的修订会中止并取代旧的工作。推导完全确定性——不发起任何模型请求——因此重命名只产生一个仅日志的 `session/title` 事件。
 
@@ -17,7 +17,7 @@
 
 ## 提供方约定
 
-本插件不持有自身状态：`apply` 通过 `ctx.sessionTitle.register()` 注册一个提供方，使用 `automatic: 'all-prompts'`，`generate()` 返回最新符合条件消息的归一化前导词，并将其归属于该消息的确切 seq。覆盖、取消、归一化与日志接受均由服务负责。参见[会话标题数据结构](../../../docs/subsystems/session-title.md)。
+本插件不持有自身状态：`apply` 通过 `ctx.sessionTitle.register()` 注册一个提供方，使用 `automatic: 'all-prompts'`，`generate()` 返回最新符合条件消息的归一化前导词，并将其归属于该消息的确切 seq。覆盖、取消、归一化与日志接受均由服务负责。参见[会话标题数据结构](../../../docs/subsystems/session-title.zh.md)。
 
 ## 模型体验
 

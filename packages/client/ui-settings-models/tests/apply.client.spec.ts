@@ -153,8 +153,26 @@ describe('ui-settings-models apply', () => {
     expect(() => b.locale.register('settings.models', 'en', {})).not.toThrow()
   })
 
-  it('keeps remote-browser acknowledgement in process memory', async () => {
-    const b = await bench(false)
+  it('loads authenticated remote-browser acknowledgement from the Host', async () => {
+    const describe = vi.fn(() => Promise.resolve({
+      rpcId: 'remote-welcome' as never,
+      result: {
+        ok: true as const,
+        value: {
+          writable: true,
+          hasDocument: false,
+          namespaces: [{
+            ns: WELCOME_NOTICE_SETTINGS_NAMESPACE,
+            schema: {},
+            value: {},
+            applies: 'live' as const,
+            secrets: [],
+            revision: 0,
+          }],
+        },
+      },
+    }))
+    const b = await bench(false, { describe })
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const entry = b.slots.entries('settings.onboarding')
@@ -164,9 +182,12 @@ describe('ui-settings-models apply', () => {
     )()
 
     await injected.controller.load()
-    expect(injected.controller.store.getSnapshot()).toEqual({
-      status: 'ready', acknowledged: false, error: null,
+    await vi.waitFor(() => {
+      expect(injected.controller.store.getSnapshot()).toEqual({
+        status: 'ready', acknowledged: false, error: null,
+      })
     })
+    expect(describe).toHaveBeenCalledOnce()
   })
 })
 
@@ -177,7 +198,7 @@ describe('pushed invalidations', () => {
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     // The fake wire face has no methods: a fetch attempt would throw.
     b.ctx.remote.$dispatch('settings/document-updated', ['llm-pi-ai', 1])
-    b.ctx.remote.$dispatch('credentials/updated', ['OPENAI_API_KEY'])
+    b.ctx.remote.$dispatch('credentials/reference-updated', ['OPENAI_API_KEY'])
     b.ctx.remote.$dispatch('llm/adapters-updated', [])
     b.ctx.emit('connection/reset')
   })
@@ -210,7 +231,7 @@ describe('pushed invalidations', () => {
     )()
     injected.controller.store.update((state) => { state.status = 'ready' })
     const load = vi.spyOn(injected.controller, 'load').mockResolvedValue()
-    b.ctx.remote.$dispatch('credentials/updated', ['DEEPSEEK_API_KEY'])
+    b.ctx.remote.$dispatch('credentials/reference-updated', ['DEEPSEEK_API_KEY'])
     expect(load).toHaveBeenCalledTimes(1)
   })
 
