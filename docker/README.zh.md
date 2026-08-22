@@ -39,7 +39,7 @@ docker build -t dsh-tailscale:local -f Dockerfile .
 
 - 已登录 Tailscale 的 Linux 宿主，且 `PATH` 上存在 Node.js、pnpm、Git、curl、`flock` 与 `readlink`；以及
 - 容器运行时加 Compose —— Docker，或 podman 加 `docker-compose`/`podman-compose`；以及
-- 一个带 lockfile 的仓库检出。启动器先停止它的现有组合，在该检出中运行 `pnpm install --frozen-lockfile` 与 `pnpm run build`，然后校验 web 前端 dist 和每个 client 包的 `lib/client.js`，最后才构建镜像。安装失败、编译失败或缺少产物时，服务会保持停止状态，而不会让进程读取部分替换的依赖项或产物。
+- 一个带 lockfile 的仓库检出。停止现有组合前，若已安装的聚合包声明了该 sidebar 依赖，启动器会拒绝同时列出 `@linxin666/dsh-web-ui-all` 与 `dsh-better-sidebar` 的 `web` profile，并打印确切的 `dsh plugin remove` 命令。然后启动器在检出中运行 `pnpm install --frozen-lockfile` 与 `pnpm run build`，校验 web 前端 dist 和每个 client 包的 `lib/client.js`，最后才构建镜像。安装失败、编译失败或缺少产物时，服务会保持停止状态，而不会让进程读取部分替换的依赖项或产物。
 
 启动器使用第一个可达且具备可工作 Compose 提供方的容器引擎：带 Compose 插件的 Docker，其次是 `podman compose`，再次是 `podman-compose` 包装器；只有 `docker` 可执行文件但没有插件时，不会遮蔽可工作的 podman。在 SELinux 宿主（Fedora 默认开启）上，两个服务都设置 `label=disable`，使容器无需重打标签即可读写挂载的 home 与工具链。rootless podman 下，启动器生成的 override 追加 `userns_mode: keep-id`，把当前用户的 uid 一一映射进容器，agent 在挂载 home 中创建的文件在宿主上仍属于该用户。容器以 `DSH_HOST_USER_HOME` 属主的 uid/gid（`DSH_UID`/`DSH_GID`）运行，宿主用户不是 uid 1000 时也无需任何调整。
 

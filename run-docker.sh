@@ -129,6 +129,34 @@ if ! node -e 'const p = require(process.argv[1]); process.exit(typeof p.scripts?
   die "package.json has no dsh script: $DSH_REPO/package.json"
 fi
 
+# @linxin666/dsh-web-ui-all already mounts dsh-better-sidebar. Listing the
+# standalone bundle too races its conditional self-disable and can register
+# /sidebar/api twice. Reject that known-invalid profile before stopping services.
+profile_manifest="$DSH_HOST_USER_HOME/.dsh/profiles/web/package.json"
+if [ -f "$profile_manifest" ]; then
+  if ! profile_check="$(node - "$profile_manifest" <<'NODE' 2>&1
+const fs = require('node:fs')
+const path = require('node:path')
+const manifestPath = process.argv[2]
+const profileDir = path.dirname(manifestPath)
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+const bundles = manifest.dsh?.profile?.bundles
+const aggregate = '@linxin666/dsh-web-ui-all'
+const sidebar = 'dsh-better-sidebar'
+if (!Array.isArray(bundles) || !bundles.includes(aggregate) || !bundles.includes(sidebar)) process.exit(0)
+const aggregateManifestPath = path.join(profileDir, 'node_modules', aggregate, 'package.json')
+if (!fs.existsSync(aggregateManifestPath)) process.exit(0)
+const aggregateManifest = JSON.parse(fs.readFileSync(aggregateManifestPath, 'utf8'))
+if (typeof aggregateManifest.dependencies?.[sidebar] !== 'string') process.exit(0)
+console.log(`profile web loads ${sidebar} from multiple bundles: ${aggregate}, ${sidebar}`)
+console.log(`remove the redundant direct bundle: pnpm dsh plugin --profile web remove ${sidebar}`)
+process.exit(2)
+NODE
+)"; then
+    die "$profile_check"
+  fi
+fi
+
 # The running container reads this checkout directly. Stop it before pnpm
 # replaces dependency links and build artifacts, then prepare the next launch.
 if ! "${compose_cmd[@]}" -f docker/docker-compose.yml stop dsh auth-proxy; then

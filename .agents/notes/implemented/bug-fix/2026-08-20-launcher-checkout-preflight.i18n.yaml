@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-20-launcher-checkout-preflight.md
-2026-08-20-launcher-checkout-preflight.md: 00f0cf87de113bd955dd1970a2d332946ce5e072
-2026-08-20-launcher-checkout-preflight.zh.md: e0a6e6402fb42dc1aa7931ad23197686d5ed85a0
+2026-08-20-launcher-checkout-preflight.md: c1925532fdc6c368053cfc01242201dbfb38c965
+2026-08-20-launcher-checkout-preflight.zh.md: 8cc6ab6b67648bd8407db79e826929bfc35c7a11

@@ -132,6 +132,42 @@ esac`,
         `DSH_REPO must be the root of a Git checkout: ${invalid}`,
       )
       expect(readFileSync(calls, 'utf8')).not.toContain(' stop dsh auth-proxy')
+
+      const profile = join(home, '.dsh/profiles/web')
+      const aggregate = join(profile, 'node_modules/@linxin666/dsh-web-ui-all')
+      mkdirSync(aggregate, { recursive: true })
+      writeFileSync(
+        join(profile, 'package.json'),
+        '{"dsh":{"profile":{"bundles":["@linxin666/dsh-web-ui-all","dsh-better-sidebar"]}}}\n',
+      )
+      writeFileSync(
+        join(aggregate, 'package.json'),
+        '{"dependencies":{"dsh-better-sidebar":"0.14.0"}}\n',
+      )
+      writeFileSync(calls, '')
+      const duplicate = spawnSync(launcher, {
+        cwd: repository,
+        encoding: 'utf8',
+        env,
+      })
+      expect(duplicate.status).toBe(1)
+      expect(duplicate.stderr).toContain(
+        'profile web loads dsh-better-sidebar from multiple bundles: @linxin666/dsh-web-ui-all, dsh-better-sidebar',
+      )
+      expect(duplicate.stderr).toContain(
+        'pnpm dsh plugin --profile web remove dsh-better-sidebar',
+      )
+      expect(readFileSync(calls, 'utf8')).not.toContain(' stop dsh auth-proxy')
+
+      writeFileSync(join(aggregate, 'package.json'), '{"dependencies":{}}\n')
+      writeFileSync(calls, '')
+      const independent = spawnSync(launcher, {
+        cwd: repository,
+        encoding: 'utf8',
+        env,
+      })
+      expect(independent.status).toBe(0)
+      expect(readFileSync(calls, 'utf8')).toContain(' stop dsh auth-proxy')
     },
   )
 })
