@@ -42,7 +42,8 @@ LABEL org.opencontainers.image.title="DeepSeek Harness" \
 # entrypoint when a key is set) runs as root in this same process tree. The
 # build host may sit on a slow or flaky uplink; mirror timeouts are transient,
 # so retry the package fetch a few times before giving up.
-RUN i=0; until apt-get update && apt-get install -y --no-install-recommends bash curl ca-certificates util-linux git tzdata; do \
+# procps supplies ps for PID-reuse checks on persisted plugin locks.
+RUN i=0; until apt-get update && apt-get install -y --no-install-recommends bash curl ca-certificates util-linux git tzdata procps; do \
       i=$((i+1)); [ "$i" -ge 6 ] && { echo "apt-get failed after 6 attempts" >&2; exit 1; }; sleep 15; \
     done \
  && rm -rf /var/lib/apt/lists/* \

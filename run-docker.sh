@@ -88,6 +88,9 @@ echo "container runtime: ${compose_cmd[*]} (build cache: $build_cache)"
 
 export DSH_PUBLIC_PORT="${DSH_PUBLIC_PORT:-4080}"
 export DSH_BACKEND_PORT="${DSH_BACKEND_PORT:-4081}"
+# Shared only by the Host and owner-authenticated proxy; a fresh launch token
+# prevents clients from forging access to the task-board control routes.
+export DSH_TASK_BOARD_PROXY_TOKEN="${DSH_TASK_BOARD_PROXY_TOKEN:-$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))")}"
 DSH_STARTUP_TIMEOUT="${DSH_STARTUP_TIMEOUT:-90}"
 validate_port() {
   local name="$1" value="$2"

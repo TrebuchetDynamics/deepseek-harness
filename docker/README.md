@@ -22,8 +22,8 @@ The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not
 | `Caddyfile`          | Loopback identity proxy for owner-only configuration RPCs                                         |
 | `../run-docker.sh`   | Discovers host toolchains, builds, starts, verifies, and publishes the composition                |
 | `../.dockerignore`   | Excludes unnecessary build-context files                                                          |
-| `browser-e2e/`       | Reproducible Chromium runtime for the web browser e2e lane (`pnpm run test:web`)                   |
-| `browser-e2e/run.sh` | Builds that runtime and runs the lane against the current checkout                                 |
+| `browser-e2e/`       | Reproducible Chromium runtime for the web browser e2e lane (`pnpm run test:web`)                  |
+| `browser-e2e/run.sh` | Builds that runtime and runs the lane against the current checkout                                |
 
 ## Build
 
@@ -70,6 +70,14 @@ export DEEPSEEK_API_KEY=sk-...   # optional until a model request
 
 The launcher derives `DSH_HOST_FLUTTER_HOME`, `DSH_HOST_ANDROID_HOME`, and `DSH_HOST_JAVA_HOME` from the discovered toolchains (printing one summary line), reads the host's MagicDNS name, tailnet IPv4, and login from `tailscale status`, builds the image, starts both loopback services, and verifies that an unrelated login receives HTTP 403 while the owner receives HTTP 200. It trusts the MagicDNS name and the tailnet IPv4 at the harness browser-trust fences and publishes `https://<host>.<tailnet>.ts.net/` only after those checks pass.
 
+The optional `@linxin666/dsh-client-ui-task-board` keeps its control routes behind an additional proxy token. Configure its aggregate row to admit the launcher's trusted authorities; the launcher generates the token and gives it only to the Host and Caddy, which injects it after matching `TAILSCALE_OWNER`:
+
+```yaml
+- id: web-ui-task-board
+  config:
+    trustedProxyHosts: !!js (process.env.DSH_TRUSTED_HOSTS ?? '').split(/[,\s]+/).filter(Boolean)
+```
+
 The host home is mounted read-write at the same path inside the container. The launcher also writes a per-launch Compose override file mounting the JDK read-only, plus the Android SDK, the repository, udev data, and the USB bus — each only when it exists on the host, because Compose cannot express a conditional bind mount and would otherwise let the daemon create an empty root-owned directory at the missing path. Toolchains that already live under the mounted home need no extra mount. The entrypoint links `flutter`, `dart`, `adb`, and `java` into `/usr/local/bin` when their SDKs are available, because login shells may reset `PATH`.
 
 Set `DSH_HOST_USER_HOME` when the host home is not `$HOME`, `DSH_HOST_WORKSPACE` to override the agent working directory (default `$HOME/git`, falling back to `$HOME` with a warning), and `DSH_HOST_FLUTTER_HOME`, `DSH_HOST_ANDROID_HOME`, or `DSH_HOST_JAVA_HOME` to override toolchain discovery.
@@ -110,6 +118,7 @@ A direct Compose invocation skips the launcher-generated override file, so it mo
 | `DSH_HOST_ANDROID_HOME` | discovered (see Host requirements) | Android SDK path; empty when absent, leaving the container without `adb` |
 | `DSH_HOST_JAVA_HOME`    | derived from `java` on `PATH` | Host JDK path; empty when absent, leaving the container without Java |
 | `DSH_TRUSTED_HOSTS`     | _(unset)_               | Additional API authorities appended to the host MagicDNS name and tailnet IPv4 (both pre-filled by the launcher) |
+| `DSH_TASK_BOARD_PROXY_TOKEN` | random per launcher run | Internal credential shared by the task-board Host route and owner-authenticated Caddy proxy |
 | `TAILSCALE_OWNER`       | host Tailscale login    | Login allowed to use owner-only RPC paths through Caddy       |
 | `TS_AUTHKEY`            | _(unset)_               | Auth key enabling the container-owned-node mode               |
 | `TS_HOSTNAME`           | `dsh` in Compose        | Container-owned Tailscale node name                           |

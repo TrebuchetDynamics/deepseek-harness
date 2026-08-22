@@ -15,9 +15,21 @@
 	}
 	header @versioned_bundle >Cache-Control "public, max-age=31536000, immutable"
 
+	@owner_task_board {
+		header Tailscale-User-Login {$TAILSCALE_OWNER}
+		path /api/task-board/*
+	}
+
+	handle @owner_task_board {
+		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
+			header_up Host {http.request.host}
+			header_up X-Dsh-Task-Board-Proxy-Token {$DSH_TASK_BOARD_PROXY_TOKEN}
+		}
+	}
+
 	@owner_sensitive {
 		header Tailscale-User-Login {$TAILSCALE_OWNER}
-		path /api/settings.* /api/credentials.* /api/llm.providers /api/llm.discoverModels /api/agentPreset.read /api/agentPreset.copy /api/agentPreset.openDocument /api/agentPreset.remove /api/host.pickDirectory /api/host.openPath
+		path /api/settings.* /api/credentials.* /api/llm.providers /api/llm.discoverModels /api/agentPreset.read /api/agentPreset.copy /api/agentPreset.openDocument /api/agentPreset.remove /api/host.pickDirectory /api/host.openPath /api/dsh-skill-explorer/*
 	}
 
 	handle @owner_sensitive {
@@ -33,6 +45,7 @@
 		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
 			header_up Host {http.request.host}
 			header_up Origin {http.request.header.Origin}
+			header_up -X-Dsh-Task-Board-Proxy-Token
 		}
 	}
 }

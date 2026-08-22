@@ -20,7 +20,7 @@ Harness 的 `--trusted-host` 选项是 DNS rebinding 与跨站栅栏，而不是
 | `dsh-entrypoint.sh`  | 启动 `dsh web`、暴露已挂载工具链，并可选择加入由容器持有的 tailnet 节点 |
 | `docker-compose.yml` | 宿主网络组合、宿主开发环境挂载、USB 访问和代理                          |
 | `Caddyfile`          | 为仅限属主的配置 RPC 提供回环身份代理                                   |
-| `../run-docker.sh`   | 发现宿主工具链、构建、启动、检查并发布组合                                 |
+| `../run-docker.sh`   | 发现宿主工具链、构建、启动、检查并发布组合                              |
 | `../.dockerignore`   | 排除不需要的构建上下文文件                                              |
 | `browser-e2e/`       | Web 浏览器 e2e 车道（`pnpm run test:web`）的可重现 Chromium 运行时      |
 | `browser-e2e/run.sh` | 构建该运行时并针对当前检出运行车道                                      |
@@ -70,6 +70,14 @@ export DEEPSEEK_API_KEY=sk-...   # optional until a model request
 
 启动器从已发现的工具链推导 `DSH_HOST_FLUTTER_HOME`、`DSH_HOST_ANDROID_HOME` 与 `DSH_HOST_JAVA_HOME`（并打印一行摘要），从 `tailscale status` 读取宿主的 MagicDNS 名称、tailnet IPv4 与登录，构建镜像，启动两个回环服务，并验证无关登录收到 HTTP 403、属主收到 HTTP 200。它在 harness 浏览器信任栅栏中同时信任 MagicDNS 名称与 tailnet IPv4，只有这些检查通过后，它才会发布 `https://<host>.<tailnet>.ts.net/`。
 
+可选的 `@linxin666/dsh-client-ui-task-board` 使用额外代理令牌保护控制路由。将其聚合行配置为接受启动器的受信 authority；启动器生成令牌并仅交给 Host 与 Caddy，Caddy 只在匹配 `TAILSCALE_OWNER` 后注入该令牌：
+
+```yaml
+- id: web-ui-task-board
+  config:
+    trustedProxyHosts: !!js (process.env.DSH_TRUSTED_HOSTS ?? '').split(/[,\s]+/).filter(Boolean)
+```
+
 宿主 home 以相同路径读写挂载到容器。启动器还写入一个每次启动生成的 Compose override 文件，以只读方式挂载 JDK，并挂载 Android SDK、仓库、udev 数据和 USB 总线——每一项都只在该宿主路径存在时挂载，因为 Compose 无法表达条件 bind mount，路径缺失时会让 daemon 在该路径创建空的 root 属主目录。已经位于已挂载宿主 home 之下的工具链无需额外挂载。工具链可用时，入口脚本把 `flutter`、`adb`、`dart` 和 `java` 链接到 `/usr/local/bin`，因为登录 shell 可能重置 `PATH`。
 
 宿主 home 不是 `$HOME` 时设置 `DSH_HOST_USER_HOME`；需要覆盖 agent 工作目录时设置 `DSH_HOST_WORKSPACE`（默认 `$HOME/git`，缺失时带警告回退到 `$HOME`）；需要覆盖工具链发现结果时设置 `DSH_HOST_FLUTTER_HOME`、`DSH_HOST_ANDROID_HOME` 或 `DSH_HOST_JAVA_HOME`。
@@ -110,6 +118,7 @@ docker compose -f docker/docker-compose.yml up -d --build
 | `DSH_HOST_ANDROID_HOME` | 自动发现（见宿主要求） | Android SDK 路径；缺失时为空，容器内没有 `adb` |
 | `DSH_HOST_JAVA_HOME`    | 从 `PATH` 上的 `java` 推导 | 宿主 JDK 路径；缺失时为空，容器内没有 Java    |
 | `DSH_TRUSTED_HOSTS`     | _（未设置）_        | 追加到宿主 MagicDNS 名称与 tailnet IPv4 的其他 API authority（二者由启动器预填） |
+| `DSH_TASK_BOARD_PROXY_TOKEN` | 启动器每次运行时随机生成 | task-board Host 路由与属主认证 Caddy 代理共享的内部凭据 |
 | `TAILSCALE_OWNER`       | 宿主 Tailscale 登录 | 可通过 Caddy 使用仅限属主 RPC 路径的登录      |
 | `TS_AUTHKEY`            | _（未设置）_        | 启用容器自有节点模式的 auth key               |
 | `TS_HOSTNAME`           | Compose 中为 `dsh`  | 容器持有的 Tailscale 节点名称                 |
