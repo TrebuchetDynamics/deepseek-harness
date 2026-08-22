@@ -398,9 +398,6 @@
     # protection and the model would choose the request target. Search is a full
     # auxiliary model request with server-side retrieval, so this shipped DeepSeek
     # route gets 60s while the provider-neutral tool default remains 30s.
-    # Machine-local provider choice belongs in the profile's own layer — the
-    # keyless, self-hosted SearXNG provider (@deepseek-ai/dsh-web-search-searxng)
-    # is the free alternative for hosts that opt in.
     - id: web
       name: '@deepseek-ai/dsh-web'
       config:

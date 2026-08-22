@@ -9,7 +9,6 @@
 | [`web/`](web/README.zh.md) | 定义 web 提供方注册、选择和共享错误 | `ctx.web` |
 | [`web-search-exa/`](web-search-exa/README.zh.md) | 通过 Exa 提供 web 搜索 | 注册到 `ctx.web` |
 | [`web-search-perplexity/`](web-search-perplexity/README.zh.md) | 通过 Perplexity 提供 web 搜索 | 注册到 `ctx.web` |
-| [`web-search-searxng/`](web-search-searxng/README.zh.md) | 通过自托管、无密钥的 SearXNG 聚合器提供 web 搜索 | 注册到 `ctx.web` |
 | [`web-search-deepseek/`](web-search-deepseek/README.zh.md) | 提供 DeepSeek 原生 web 搜索 | 注册到 `ctx.web` |
 | [`web-fetch-http/`](web-fetch-http/README.zh.md) | 抓取公共 HTTP 和 HTTPS 资源 | 注册到 `ctx.web` |
 | [`tool-web/`](tool-web/README.zh.md) | 向模型公开 web 搜索和抓取 | 注册到 `ctx.tools` |
