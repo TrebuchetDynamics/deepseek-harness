@@ -37,9 +37,9 @@ docker build -t dsh-tailscale:local -f Dockerfile .
 
 启动器要求：
 
-- 已登录 Tailscale 的 Linux 宿主，且 `PATH` 上存在 Node.js、curl、`flock` 与 `readlink`；以及
+- 已登录 Tailscale 的 Linux 宿主，且 `PATH` 上存在 Node.js、pnpm、Git、curl、`flock` 与 `readlink`；以及
 - 容器运行时加 Compose —— Docker，或 podman 加 `docker-compose`/`podman-compose`；以及
-- 一个已安装并已构建的仓库检出：在其根目录执行 `pnpm install && pnpm run build`。容器通过自己的 `pnpm dsh` 启动检出，它要解析 `node_modules` 与已构建的浏览器产物（web 前端 dist 和每个 client 包的 `lib/client.js`）；拉取或合并之后必须重新构建。启动器在启动任何容器之前都会检查这一点，并以退出方式给出需要执行的确切命令。
+- 一个带 lockfile 的仓库检出。启动器先停止它的现有组合，在该检出中运行 `pnpm install --frozen-lockfile` 与 `pnpm run build`，然后校验 web 前端 dist 和每个 client 包的 `lib/client.js`，最后才构建镜像。安装失败、编译失败或缺少产物时，服务会保持停止状态，而不会让进程读取部分替换的依赖项或产物。
 
 启动器使用第一个可达且具备可工作 Compose 提供方的容器引擎：带 Compose 插件的 Docker，其次是 `podman compose`，再次是 `podman-compose` 包装器；只有 `docker` 可执行文件但没有插件时，不会遮蔽可工作的 podman。在 SELinux 宿主（Fedora 默认开启）上，两个服务都设置 `label=disable`，使容器无需重打标签即可读写挂载的 home 与工具链。rootless podman 下，启动器生成的 override 追加 `userns_mode: keep-id`，把当前用户的 uid 一一映射进容器，agent 在挂载 home 中创建的文件在宿主上仍属于该用户。容器以 `DSH_HOST_USER_HOME` 属主的 uid/gid（`DSH_UID`/`DSH_GID`）运行，宿主用户不是 uid 1000 时也无需任何调整。
 
@@ -68,7 +68,7 @@ export DEEPSEEK_API_KEY=sk-...   # optional until a model request
 ./run-docker.sh
 ```
 
-启动器从已发现的工具链推导 `DSH_HOST_FLUTTER_HOME`、`DSH_HOST_ANDROID_HOME` 与 `DSH_HOST_JAVA_HOME`（并打印一行摘要），从 `tailscale status` 读取宿主的 MagicDNS 名称、tailnet IPv4 与登录，构建镜像，启动两个回环服务，并验证无关登录收到 HTTP 403、属主收到 HTTP 200。它在 harness 浏览器信任栅栏中同时信任 MagicDNS 名称与 tailnet IPv4，只有这些检查通过后，它才会发布 `https://<host>.<tailnet>.ts.net/`。
+启动器安装并构建挂载的检出，从已发现的工具链推导 `DSH_HOST_FLUTTER_HOME`、`DSH_HOST_ANDROID_HOME` 与 `DSH_HOST_JAVA_HOME`（并打印一行摘要），从 `tailscale status` 读取宿主的 MagicDNS 名称、tailnet IPv4 与登录，构建镜像，启动两个回环服务，并验证无关登录收到 HTTP 403、属主收到 HTTP 200。它在 harness 浏览器信任栅栏中同时信任 MagicDNS 名称与 tailnet IPv4，只有这些检查通过后，它才会发布 `https://<host>.<tailnet>.ts.net/`。
 
 可选的 `@linxin666/dsh-client-ui-task-board` 使用额外代理令牌保护控制路由。将其聚合行配置为接受启动器的受信 authority；启动器生成令牌并仅交给 Host 与 Caddy，Caddy 只在匹配 `TAILSCALE_OWNER` 后注入该令牌：
 

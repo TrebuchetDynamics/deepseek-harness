@@ -1,4 +1,4 @@
-# Agent Note: run-docker.sh preflights the checkout's install and build state
+# Agent Note: run-docker.sh installs and builds the checkout before containers
 
 Status: implemented
 
@@ -6,26 +6,24 @@ English | [中文](2026-08-20-launcher-checkout-preflight.zh.md)
 
 ## Problem
 
-The container boots the mounted checkout through its own `pnpm dsh`, which resolves the repository's `node_modules` and its built browser artifacts. `run-docker.sh` validated only that `DSH_REPO` is a directory, so a checkout that was cloned fresh, or pulled past a merge that changed the lockfile or added client packages, reached `docker compose up` and then crashed the `dsh` container seconds later: `dsh web` exits with `client bundles not found; run pnpm run build before launch` (or a module-resolution failure when `node_modules` is missing), the healthcheck never passes, and the user sees only `Container docker-dsh-1 Error dependency...` from Compose — the actual error is buried in container logs the launcher never surfaces. This bit in the field: after merging upstream 0.1.0-rc.8 (which added four client packages), the launcher built the image for two minutes and then failed with no pointer to the cause.
+The container boots the mounted checkout through its own `pnpm dsh`, which resolves the repository's `node_modules` and built browser artifacts. A fresh checkout or a merge that changes dependencies or client packages can therefore build the container image successfully and then crash at startup with a module-resolution or missing-client-bundle error. Compose reports the health dependency failure while the actionable error remains in the container log.
 
 ## Decision
 
-The launcher owns the precondition it creates: since it is the component that boots the checkout, it verifies the checkout is bootable before building or starting anything. A single `node -e` preflight right after the `DSH_REPO` existence check tests, in order: `node_modules` present (else "run `pnpm install`"), `apps/web/dist/index.html` present (else "run `pnpm run build`"), and every `packages/client/*` package whose manifest carries a `dsh.client` block has `lib/client.js` (else "run `pnpm run build`", naming the missing packages — exactly the set whose absence crashes the boot). Any finding dies with `error:` naming the repository path and the exact command; a ready checkout prints nothing.
+The launcher first validates that `DSH_REPO` is a Git root with a pnpm lockfile and `dsh` package script. It then stops its existing composition before preparing the checkout, so no running process reads dependency links or build artifacts while pnpm replaces them. Every launch then runs `pnpm install --frozen-lockfile` and `pnpm run build` in `DSH_REPO`; either command failing stops the launch with the checkout path. A post-build check requires `node_modules`, `apps/web/dist/index.html`, and `lib/client.js` from every `packages/client/*` manifest carrying `dsh.client`, so a successful custom build that omits runtime assets also fails before Compose startup.
 
-Failures hidden behind Compose's dependency message are surfaced directly. When `compose up` fails, the health-gated proxy misses its configurable readiness deadline, or either identity-check request fails, the launcher prints `compose ps -a` and the last 30 lines from both `dsh` and `auth-proxy` before dying; an HTTP-policy mismatch reports both observed status codes. `DSH_STARTUP_TIMEOUT` defaults to 90 seconds so a cold `pnpm dsh` boot plus the 20-second start period and 30-second health interval cannot race a fixed 10-second deadline.
+Failures behind Compose's dependency message are surfaced directly. When `compose up` fails, the health-gated proxy misses its configurable readiness deadline, or either identity-check request fails, the launcher prints `compose ps -a` and the last 30 lines from both `dsh` and `auth-proxy` before exiting; an HTTP-policy mismatch reports both observed status codes. `DSH_STARTUP_TIMEOUT` defaults to 90 seconds so a cold `pnpm dsh` boot plus the health-check schedule does not race a short fixed deadline.
 
 ## Alternatives considered
 
-**Run `pnpm install`/`pnpm run build` automatically when missing.** Rejected: multi-minute side effects on the host tree (network fetch, artifact writes) belong to an explicit user action; the launcher's established pattern is to fail fast with the exact command.
+**Only report the commands needed by a stale checkout.** Rejected: running a launcher should produce the runnable checkout it requires, and a preflight cannot reliably detect dependency changes from the continued existence of `node_modules`.
 
-**Only check `node_modules` and let the container error mention the build.** Rejected: the container's error names a command to run inside a directory the user is already in — but discovering it requires reading container logs the launcher never showed, which is the failure being fixed.
+**Skip installation when `node_modules` exists.** Rejected: pnpm's lockfile installation is the existing idempotent synchronization mechanism; duplicating part of its freshness logic in shell would be less reliable.
 
-**Check a fixed sample bundle (say, `ui-renderer/lib/client.js`).** Rejected: merges can add any number of new client packages; the check must iterate the manifests, not sample one path, or the next merge reintroduces the crash.
-
-**Leave the 10-second probe window.** Rejected as part of the same symptom class: a slow-but-healthy boot would die with the same unhelpful message the crashed boot produced.
+**Trust a zero exit status from the build.** Rejected: `DSH_REPO` is configurable, and its build script may not produce the browser assets consumed by `dsh web`; the narrow artifact check gives that failure before a container restart loop.
 
 ## Consequences
 
-A fresh clone gets `error: <repo> is not ready to boot: run 'pnpm install' there first` before any image build, and a post-merge tree gets the same treatment naming the missing client packages; after `pnpm install && pnpm run build`, the rc.8 checkout serves HTTP 200. Stub-host scenarios cover no install, no web dist, stale client bundles, failed Compose startup, proxy-policy mismatches, and diagnostics from both services.
+One launcher invocation synchronizes dependencies, rebuilds the checkout, builds the image, starts the composition, validates proxy authorization, and publishes Tailscale Serve. The focused stub-host test verifies that checkout installation and compilation precede the image build.
 
-Trade-offs: the preflight adds one `node` invocation to the launch path (node is already a hard prerequisite); a package.json the preflight cannot parse aborts the launch with the parse error rather than a curated message; and the check treats every `dsh.client` package as required even if a future profile excludes some — a false positive costs one `pnpm run build`, while a false negative costs the original silent crash, so the check errs strict.
+Every launch has downtime while pnpm checks dependencies and compiles sources, and it writes the normal installation and build outputs into the mounted checkout. A failed preparation leaves the existing services stopped. These costs are deliberate: the launcher favors a complete launch over inferring whether a merge left either dependency links or generated assets stale, and it never keeps the old process live against a checkout being rebuilt.

@@ -37,9 +37,9 @@ The image installs the published `@deepseek-ai/dsh` package, its runtime peers, 
 
 The launcher requires:
 
-- a Linux host already logged into Tailscale, with Node.js, curl, `flock`, and `readlink` on `PATH`; and
+- a Linux host already logged into Tailscale, with Node.js, pnpm, Git, curl, `flock`, and `readlink` on `PATH`; and
 - a container runtime plus Compose — Docker, or podman with `docker-compose`/`podman-compose`; and
-- a repository checkout that is installed and built: `pnpm install && pnpm run build` at its root. The container boots the checkout via its own `pnpm dsh`, which resolves `node_modules` and the built browser artifacts (the web frontend dist and every client package's `lib/client.js`); after pulling or merging, rebuilding is required. The launcher checks this before starting anything and exits with the exact command to run.
+- a repository checkout with a lockfile. The launcher stops its existing composition, runs `pnpm install --frozen-lockfile` and `pnpm run build` in that checkout, then verifies the web frontend dist and every client package's `lib/client.js` before building the image. Installation, compilation, or missing-artifact failures leave the services stopped instead of exposing a process to partially replaced dependencies or assets.
 
 The launcher uses the first reachable container engine with a working Compose provider: Docker with its Compose plugin, then `podman compose`, then the `podman-compose` wrapper. A bare `docker` executable cannot mask a working podman installation. On SELinux hosts (Fedora enables it by default) both services set `label=disable` so the container may read the bind-mounted home and toolchains without relabeling them. Under rootless podman the launcher's generated override adds `userns_mode: keep-id`, which maps the invoking user's uid 1:1 into the container so files the agent creates in the mounted home belong to that user on the host. The container drops to the uid and gid that own `DSH_HOST_USER_HOME` (`DSH_UID`/`DSH_GID`), so hosts whose user is not uid 1000 work unchanged.
 
@@ -68,7 +68,7 @@ export DEEPSEEK_API_KEY=sk-...   # optional until a model request
 ./run-docker.sh
 ```
 
-The launcher derives `DSH_HOST_FLUTTER_HOME`, `DSH_HOST_ANDROID_HOME`, and `DSH_HOST_JAVA_HOME` from the discovered toolchains (printing one summary line), reads the host's MagicDNS name, tailnet IPv4, and login from `tailscale status`, builds the image, starts both loopback services, and verifies that an unrelated login receives HTTP 403 while the owner receives HTTP 200. It trusts the MagicDNS name and the tailnet IPv4 at the harness browser-trust fences and publishes `https://<host>.<tailnet>.ts.net/` only after those checks pass.
+The launcher installs and builds the mounted checkout, derives `DSH_HOST_FLUTTER_HOME`, `DSH_HOST_ANDROID_HOME`, and `DSH_HOST_JAVA_HOME` from the discovered toolchains (printing one summary line), reads the host's MagicDNS name, tailnet IPv4, and login from `tailscale status`, builds the image, starts both loopback services, and verifies that an unrelated login receives HTTP 403 while the owner receives HTTP 200. It trusts the MagicDNS name and the tailnet IPv4 at the harness browser-trust fences and publishes `https://<host>.<tailnet>.ts.net/` only after those checks pass.
 
 The optional `@linxin666/dsh-client-ui-task-board` keeps its control routes behind an additional proxy token. Configure its aggregate row to admit the launcher's trusted authorities; the launcher generates the token and gives it only to the Host and Caddy, which injects it after matching `TAILSCALE_OWNER`:
 

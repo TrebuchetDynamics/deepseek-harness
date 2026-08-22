@@ -12,7 +12,7 @@ warn() { echo "warning: $*" >&2; }
 
 [ "$(uname -s)" = Linux ] || die "run-docker.sh requires a Linux host"
 # The launcher cannot run without these; every other host dependency degrades.
-for tool in node curl tailscale flock readlink; do
+for tool in node pnpm git curl tailscale flock readlink; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool executable not found on PATH"
 done
 
@@ -120,27 +120,46 @@ export DSH_UID DSH_GID
 # (base bundle, plugins) take effect on relaunch without an npm release.
 export DSH_REPO="${DSH_REPO:-$PWD}"
 [ -d "$DSH_REPO" ] || die "repository directory not found: $DSH_REPO"
+if ! repo_root="$(git -C "$DSH_REPO" rev-parse --show-toplevel 2>/dev/null)" \
+    || [ "$(readlink -f "$repo_root")" != "$(readlink -f "$DSH_REPO")" ]; then
+  die "DSH_REPO must be the root of a Git checkout: $DSH_REPO"
+fi
+[ -f "$DSH_REPO/pnpm-lock.yaml" ] || die "pnpm lockfile not found: $DSH_REPO/pnpm-lock.yaml"
+if ! node -e 'const p = require(process.argv[1]); process.exit(typeof p.scripts?.dsh === "string" ? 0 : 1)' "$DSH_REPO/package.json"; then
+  die "package.json has no dsh script: $DSH_REPO/package.json"
+fi
 
-# The container boots this checkout via its own `pnpm dsh`, which resolves the
-# repository's installed modules and built browser artifacts. A fresh clone or
-# a freshly merged tree without them crashes the container at startup, so fail
-# here with the exact command instead. Prints the missing step, if any.
-preflight="$(node -e '
+# The running container reads this checkout directly. Stop it before pnpm
+# replaces dependency links and build artifacts, then prepare the next launch.
+if ! "${compose_cmd[@]}" -f docker/docker-compose.yml stop dsh auth-proxy; then
+  die "failed to stop the existing composition before rebuilding $DSH_REPO"
+fi
+echo "preparing checkout: $DSH_REPO"
+if ! pnpm --dir "$DSH_REPO" install --frozen-lockfile; then
+  die "checkout dependency installation failed: $DSH_REPO"
+fi
+if ! pnpm --dir "$DSH_REPO" run build; then
+  die "checkout build failed: $DSH_REPO"
+fi
+
+# Verify the artifacts consumed by `dsh web`; a successful custom build script
+# that omits them is still not a bootable checkout.
+missing_artifacts="$(node -e '
 const fs = require("node:fs"), path = require("node:path")
 const repo = process.argv[1]
-if (!fs.existsSync(path.join(repo, "node_modules"))) { console.log("pnpm install"); process.exit(0) }
-if (!fs.existsSync(path.join(repo, "apps/web/dist/index.html"))) { console.log("pnpm run build (web frontend missing)"); process.exit(0) }
 const missing = []
+if (!fs.existsSync(path.join(repo, "node_modules"))) missing.push("node_modules")
+if (!fs.existsSync(path.join(repo, "apps/web/dist/index.html"))) missing.push("apps/web/dist/index.html")
 for (const dir of fs.readdirSync(path.join(repo, "packages/client"))) {
   const pkg = path.join(repo, "packages/client", dir)
   const manifest = path.join(pkg, "package.json")
   if (!fs.existsSync(manifest)) continue
   const parsed = JSON.parse(fs.readFileSync(manifest, "utf8"))
-  if (parsed.dsh?.client && !fs.existsSync(path.join(pkg, "lib/client.js"))) missing.push(dir)
+  if (parsed.dsh?.client && !fs.existsSync(path.join(pkg, "lib/client.js"))) missing.push(`${dir}/lib/client.js`)
 }
-if (missing.length > 0) console.log(`pnpm run build (client bundles missing: ${missing.join(", ")})`)
+console.log(missing.join(", "))
 ' "$DSH_REPO")"
-[ -z "$preflight" ] || die "$DSH_REPO is not ready to boot: run '$preflight' there first"
+[ -z "$missing_artifacts" ] || die "checkout build omitted required artifacts: $missing_artifacts"
 
 # --- Optional host toolchains -------------------------------------------------
 # Each discovery leaves DSH_HOST_*_HOME empty when the toolchain is absent:
