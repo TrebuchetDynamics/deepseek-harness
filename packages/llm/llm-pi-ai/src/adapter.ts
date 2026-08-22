@@ -57,14 +57,37 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import {
+  DEFAULT_MAX_REQUEST_IMAGE_BYTES,
+  DEFAULT_REQUEST_IMAGE_MAX_BYTES,
+  DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
+} from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { toStreamChunks } from './stream.ts'
 
+/**
+ * Validated profile accepted by direct {@link PiAiAdapter} integrations.
+ *
+ * Request-image limits are optional because the adapter owns their defaults;
+ * the Cordis plugin's profile resolver supplies the same values explicitly.
+ */
+export interface PiAiAdapterProfile extends Omit<
+  ResolvedPiAiProviderProfile,
+  'maxRequestImageBytes' | 'requestImagePixelBudget' | 'requestImageMaxBytes'
+> {
+  /** Maximum accumulated base64 image payload; omission uses 20 MiB. */
+  maxRequestImageBytes?: number
+  /** Total-pixel budget for each inline request image; omission uses 2048 by 2048. */
+  requestImagePixelBudget?: number
+  /** Raw encoded-byte cap for each inline request image; omission uses 1 MiB. */
+  requestImageMaxBytes?: number
+}
+
 /** One resolution's frozen view: the profiles and the collection built from them. */
 interface PiAiSnapshot {
   /** The resolved profiles this collection was built from, used as its identity. */
-  profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>
+  profiles: ReadonlyMap<string, PiAiAdapterProfile>
   /** Providers for exactly those profiles; never mutated once published. */
   models: Models
 }
@@ -72,7 +95,7 @@ interface PiAiSnapshot {
 /** Constructor options for {@link PiAiAdapter}: the two resolution hooks the plugin owns. */
 export interface PiAiAdapterOptions {
   /** Current validated profiles by provider route; called once per operation. */
-  profiles: () => ReadonlyMap<string, ResolvedPiAiProviderProfile>
+  profiles: () => ReadonlyMap<string, PiAiAdapterProfile>
   /**
    * Resolve the credential for one already-resolved profile; called once per
    * stream call and frozen for that call. `undefined` defers to the route's own
@@ -81,7 +104,7 @@ export interface PiAiAdapterOptions {
    * credential at all, because a named reference that misses throws `LlmError`
    * `MISSING_CREDENTIAL` rather than falling back.
    */
-  resolveApiKey: (provider: string, profile: ResolvedPiAiProviderProfile) => Promise<string | undefined>
+  resolveApiKey: (provider: string, profile: PiAiAdapterProfile) => Promise<string | undefined>
   /**
    * How every collection this adapter builds resolves auth the request-level
    * `apiKey` override does not cover. Required rather than optional: a
@@ -110,7 +133,7 @@ export interface PiAiAuthInjection {
 
 /** Copy profile stream knobs into pi-ai's common option vocabulary. */
 function profileOptions(
-  profile: ResolvedPiAiProviderProfile,
+  profile: PiAiAdapterProfile,
   reasoning: ModelThinkingLevel | undefined,
   apiKey: string | undefined,
 ): SimpleStreamOptions {
@@ -208,6 +231,20 @@ function requestHeaders(headers: Readonly<Record<string, string>> | undefined): 
   }
 }
 
+/** Resolve adapter-owned request-image defaults before conversion starts. */
+function requestImageOptions(profile: PiAiAdapterProfile): {
+  maxRequestImageBytes: number
+  policy: { maxPixels: number; maxBytes: number }
+} {
+  return {
+    maxRequestImageBytes: profile.maxRequestImageBytes ?? DEFAULT_MAX_REQUEST_IMAGE_BYTES,
+    policy: {
+      maxPixels: profile.requestImagePixelBudget ?? DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
+      maxBytes: profile.requestImageMaxBytes ?? DEFAULT_REQUEST_IMAGE_MAX_BYTES,
+    },
+  }
+}
+
 /**
  * pi-ai-backed multi-provider adapter. Each operation reads the current
  * profiles, so a configuration change reaches the next request without a
@@ -236,7 +273,7 @@ export class PiAiAdapter extends LlmAdapter {
   }
 
   /** The profile for one route within one snapshot, or the not-owned failure. */
-  private profileOf(snapshot: PiAiSnapshot, provider: string): ResolvedPiAiProviderProfile {
+  private profileOf(snapshot: PiAiSnapshot, provider: string): PiAiAdapterProfile {
     const profile = snapshot.profiles.get(provider)
     if (profile === undefined) {
       throw new LlmError(`pi-ai adapter does not own provider "${provider}"`, 'NO_ADAPTER')
@@ -358,12 +395,16 @@ export class PiAiAdapter extends LlmAdapter {
       const onReplayDegrade = (reason: string): void => {
         this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })
       }
+      const requestImages = requestImageOptions(profile)
       const context = attachments === undefined
         ? toPiContext(options, undefined, onReplayDegrade)
-        : await toPiContext({ ...options, signal: watchdog.signal }, attachments, onReplayDegrade, profile.maxRequestImageBytes, {
-          maxPixels: profile.requestImagePixelBudget,
-          maxBytes: profile.requestImageMaxBytes,
-        })
+        : await toPiContext(
+          { ...options, signal: watchdog.signal },
+          attachments,
+          onReplayDegrade,
+          requestImages.maxRequestImageBytes,
+          requestImages.policy,
+        )
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },

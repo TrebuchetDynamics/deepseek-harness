@@ -226,7 +226,7 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.paths).toEqual(['/v1/responses'])
   })
 
-  it('resolves an attachment service mounted after the adapter when dispatching an image', async () => {
+  it('defaults image limits for direct adapters and resolves a later attachment service', async () => {
     const server = await mockServer([{ status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }])
     const attachmentId = AttachmentId(`sha256:${'a'.repeat(64)}`)
     const ref: ImageAttachmentRef = {
@@ -236,6 +236,11 @@ describe('PiAiAdapter provider routing', () => {
       width: 1,
       height: 1,
     }
+    const refs = Array.from({ length: 17 }, (_, index): ImageAttachmentRef => ({
+      ...ref,
+      attachmentId: AttachmentId(`sha256:${(index + 1).toString(16).padStart(64, '0')}`),
+      bytes: 1024 * 1024,
+    }))
     const readImage = vi.fn((_ref: ImageAttachmentRef): Promise<StoredImageAttachment> =>
       Promise.resolve({ ref, data: Uint8Array.of(1) }))
     const readImageRequest = vi.fn((
@@ -288,24 +293,37 @@ describe('PiAiAdapter provider routing', () => {
       }
     }
 
+    const resolved = resolveProfiles({
+      openai: { apiKeyEnv: 'PI_TEST_KEY', baseURL: `${server.url}/v1` },
+    }).get('openai')!
+    const {
+      maxRequestImageBytes: _maxRequestImageBytes,
+      requestImagePixelBudget: _requestImagePixelBudget,
+      requestImageMaxBytes: _requestImageMaxBytes,
+      ...extensionProfile
+    } = resolved
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
-    await ctx.plugin(LlmPiAi, {
-      providers: { openai: { apiKeyEnv: 'PI_TEST_KEY', baseURL: `${server.url}/v1` } },
-    })
+    ctx.llm.registerAdapter(['openai'], new PiAiAdapter({
+      profiles: () => new Map([['openai', extensionProfile]]),
+      resolveApiKey: () => Promise.resolve('test-key'),
+      auth: memoryAuth(),
+      resolveAttachments: () => ctx.get('attachments'),
+    }))
     await ctx.plugin(LateAttachmentStore)
 
     const result = await assemble(ctx, {
       provider: 'openai',
       model: 'gpt-4.1',
       messages: [createUserMessage({
-        content: [{ type: 'image', attachment: ref }],
+        content: refs.map(attachment => ({ type: 'image' as const, attachment })),
         source: { kind: 'plugin', plugin: 'test' },
       })],
     })
 
     expect(result.finish.kind).toBe('error')
-    expect(readImageRequest).toHaveBeenCalledWith(ref, {
+    expect(readImageRequest).not.toHaveBeenCalledWith(refs[0], expect.anything(), expect.anything())
+    expect(readImageRequest).toHaveBeenCalledWith(refs.at(-1), {
       maxPixels: 2048 * 2048,
       maxBytes: 1024 * 1024,
     }, expect.any(AbortSignal))

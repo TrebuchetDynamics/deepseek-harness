@@ -61,6 +61,7 @@ import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { PiAiAdapter } from './adapter.ts'
+import type { PiAiAdapterProfile } from './adapter.ts'
 import { authContextFrom, credentialStoreFrom } from './auth.ts'
 import { catalogProviderIds } from './catalog.ts'
 import { assertServiceable, Config, resolveProfiles } from './config.ts'
@@ -69,7 +70,7 @@ import { discoverModels } from './discovery.ts'
 import { registerPiAiFlows } from './login.ts'
 
 export { PiAiAdapter } from './adapter.ts'
-export type { PiAiAdapterOptions } from './adapter.ts'
+export type { PiAiAdapterOptions, PiAiAdapterProfile } from './adapter.ts'
 export { Config } from './config.ts'
 export type {
   PiAiCompatProfile,
@@ -165,7 +166,7 @@ export function apply(ctx: Context, config: Config): void {
 
   const resolveApiKey = async (
     provider: string,
-    profile: ResolvedPiAiProviderProfile,
+    profile: PiAiAdapterProfile,
   ): Promise<string | undefined> => {
     const ref = profile.apiKeyEnv
     // Only a profile that names no credential at all defers to pi-ai's
