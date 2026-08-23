@@ -24,7 +24,7 @@ SELinux 在基础 compose 文件中一次性处理：两个服务都设置 `secu
 
 `dsh` 服务还设置 `init: true`：入口脚本 exec 掉了自己的 shell，孤儿进程（`pnpm`/`tsx` 进程树、`tailscaled`）否则会累积成僵尸进程；docker-init 与 podman 的 catatonit 都会收割它们。
 
-同一变更中的 Dockerfile 改进：npm 缓存挂载（`--mount=type=cache,target=/root/.npm`）让约 90 MB 的全局安装下载在重建之间保留，且不进入镜像层（原来的 `rm -rf ~/.npm` 会清掉缓存挂载，因此删除）；OCI 注解（`org.opencontainers.image.*`，版本取自 `DSH_VERSION`）让构建出的镜像可被 inspect；移除了 `VOLUME` 声明——状态由 Compose 经 `tsstate` 具名卷持有，匿名卷在每次独立重启时悄悄累积。启动器默认执行普通缓存构建；`DSH_BUILD_NO_CACHE=1` 可明确要求干净重建，同时仍保留 npm 缓存挂载。
+Dockerfile 运行时支持包含带 pip、venv 支持、头文件及 `python` 别名的 Python 3，以及用于原生构建的 `build-essential` 与 pkg-config。Compose 把已挂载 home 下约定的 Rust、Go、Bun、Kotlin 与用户本地目录追加到 `PATH`；目录不存在时不产生影响，系统目录仍排在前面，因此宿主 Python 包装器无法替换镜像解释器。同一变更中的其他镜像改进：npm 缓存挂载（`--mount=type=cache,target=/root/.npm`）让约 90 MB 的全局安装下载在重建之间保留，且不进入镜像层（原来的 `rm -rf ~/.npm` 会清掉缓存挂载，因此删除）；OCI 注解（`org.opencontainers.image.*`，版本取自 `DSH_VERSION`）让构建出的镜像可被 inspect；移除了 `VOLUME` 声明——状态由 Compose 经 `tsstate` 具名卷持有，匿名卷在每次独立重启时悄悄累积。启动器默认执行普通缓存构建；`DSH_BUILD_NO_CACHE=1` 可明确要求干净重建，同时仍保留 npm 缓存挂载。
 
 ## 考虑过的替代方案
 

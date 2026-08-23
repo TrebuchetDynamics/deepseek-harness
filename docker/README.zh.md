@@ -31,7 +31,7 @@ Harness 的 `--trusted-host` 选项是 DNS rebinding 与跨站栅栏，而不是
 docker build -t dsh-tailscale:local -f Dockerfile .
 ```
 
-镜像从 npm 安装已发布的 `@deepseek-ai/dsh` 包、其运行时对等包，以及用于 profile 插件管理的 pnpm。`DSH_VERSION` 默认为 `0.1.0-rc.8`，`PNPM_VERSION` 则与仓库的 `packageManager` 一致；固定版本变化时更新对应构建参数。`run-docker.sh` 默认使用 Compose 层缓存，未变化的重启会跳过包安装层；只有明确需要干净重建时才设置 `DSH_BUILD_NO_CACHE=1`。
+镜像从 npm 安装已发布的 `@deepseek-ai/dsh` 包、其运行时对等包、用于 profile 插件管理的 pnpm、带 pip、venv 支持、头文件及两个命令名的 Python 3，以及供原生构建使用的 GCC、G++、make 与 pkg-config。`DSH_VERSION` 默认为 `0.1.1-rc.2`，`PNPM_VERSION` 则与仓库的 `packageManager` 一致；固定版本变化时更新对应构建参数。`run-docker.sh` 默认使用 Compose 层缓存，未变化的重启会跳过包安装层；只有明确需要干净重建时才设置 `DSH_BUILD_NO_CACHE=1`。
 
 ## 宿主要求
 
@@ -43,7 +43,7 @@ docker build -t dsh-tailscale:local -f Dockerfile .
 
 启动器使用第一个可达且具备可工作 Compose 提供方的容器引擎：带 Compose 插件的 Docker，其次是 `podman compose`，再次是 `podman-compose` 包装器；只有 `docker` 可执行文件但没有插件时，不会遮蔽可工作的 podman。在 SELinux 宿主（Fedora 默认开启）上，两个服务都设置 `label=disable`，使容器无需重打标签即可读写挂载的 home 与工具链。rootless podman 下，启动器生成的 override 追加 `userns_mode: keep-id`，把当前用户的 uid 一一映射进容器，agent 在挂载 home 中创建的文件在宿主上仍属于该用户。容器以 `DSH_HOST_USER_HOME` 属主的 uid/gid（`DSH_UID`/`DSH_GID`）运行，宿主用户不是 uid 1000 时也无需任何调整。
 
-开发工具链是可选的。启动器从 `PATH` 发现 Flutter 与 Java，并按 `$ANDROID_HOME`、`$ANDROID_SDK_ROOT`、`~/Android/Sdk`、`~/android-sdk`、`/usr/lib/android-sdk`、`/opt/android-sdk` 的顺序发现 Android SDK。缺失的工具链只产生警告并以无该工具链的方式启动：容器内随后没有 `flutter`、`adb` 或 `java`，也没有对应挂载。覆盖变量（`DSH_HOST_FLUTTER_HOME`、`DSH_HOST_ANDROID_HOME`、`DSH_HOST_JAVA_HOME`）指向的路径缺少预期可执行文件时，同样被跳过。
+开发工具链是可选的。启动器从 `PATH` 发现 Flutter 与 Java，并按 `$ANDROID_HOME`、`$ANDROID_SDK_ROOT`、`~/Android/Sdk`、`~/android-sdk`、`/usr/lib/android-sdk`、`/opt/android-sdk` 的顺序发现 Android SDK。Compose 的 `PATH` 还会暴露已挂载 home 中的约定工具位置：Rust 使用 `~/.cargo/bin`，Go 使用 `~/.local/go-current/bin` 与 `~/go/bin`，Bun 使用 `~/.bun/bin`，Kotlin 使用 `~/.sdkman/candidates/kotlin/current/bin`，用户命令使用 `~/.local/bin`。宿主工具链不存在时不产生影响；明确设置但无效的 Flutter、Android 或 Java 覆盖变量会打印警告并被跳过。
 
 如有需要，先允许当前用户管理 Tailscale Serve：
 

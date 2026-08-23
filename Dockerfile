@@ -42,8 +42,10 @@ LABEL org.opencontainers.image.title="DeepSeek Harness" \
 # entrypoint when a key is set) runs as root in this same process tree. The
 # build host may sit on a slow or flaky uplink; mirror timeouts are transient,
 # so retry the package fetch a few times before giving up.
-# procps supplies ps for PID-reuse checks on persisted plugin locks.
-RUN i=0; until apt-get update && apt-get install -y --no-install-recommends bash curl ca-certificates util-linux git tzdata procps; do \
+# procps supplies ps for PID-reuse checks on persisted plugin locks. Python's
+# interpreter, package/venv support, headers, and the native build toolchain
+# support repository and agent scripts without borrowing host system files.
+RUN i=0; until apt-get update && apt-get install -y --no-install-recommends bash curl ca-certificates util-linux git tzdata procps build-essential pkg-config python3 python-is-python3 python3-dev python3-pip python3-venv; do \
       i=$((i+1)); [ "$i" -ge 6 ] && { echo "apt-get failed after 6 attempts" >&2; exit 1; }; sleep 15; \
     done \
  && rm -rf /var/lib/apt/lists/* \

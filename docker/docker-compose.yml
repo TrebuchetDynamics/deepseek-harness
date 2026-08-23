@@ -26,7 +26,9 @@
 #   DSH_HOST_JAVA_HOME=                # host JDK path (run-docker.sh derives it)
 #
 # Toolchain paths are optional: an empty value leaves the container without
-# that toolchain. run-docker.sh additionally generates a per-launch override
+# that toolchain. Conventional Rust, Go, Bun, Kotlin, and user-local bins under
+# the mounted home are appended to PATH and are inert when absent.
+# run-docker.sh additionally generates a per-launch override
 # file mounting the JDK (read-only), the Android SDK, out-of-home Flutter and
 # repository paths, udev state, and the USB bus — only when they exist on the
 # host, because Compose cannot express a conditional bind mount. Under rootless
@@ -72,7 +74,7 @@ services:
       - JAVA_HOME=${DSH_HOST_JAVA_HOME:-}
       - FLUTTER_ROOT=${DSH_HOST_FLUTTER_HOME:-}
       - ADB_SERVER_SOCKET=tcp:127.0.0.1:5037
-      - PATH=${DSH_HOST_FLUTTER_HOME:-${DSH_HOST_USER_HOME:-/home/xel}/flutter}/bin:${DSH_HOST_ANDROID_HOME:-${DSH_HOST_USER_HOME:-/home/xel}/Android/Sdk}/platform-tools:${DSH_HOST_JAVA_HOME:-${DSH_HOST_USER_HOME:-/home/xel}/.sdkman/candidates/java/current}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - PATH=${DSH_HOST_FLUTTER_HOME:-${DSH_HOST_USER_HOME:-/home/xel}/flutter}/bin:${DSH_HOST_ANDROID_HOME:-${DSH_HOST_USER_HOME:-/home/xel}/Android/Sdk}/platform-tools:${DSH_HOST_JAVA_HOME:-${DSH_HOST_USER_HOME:-/home/xel}/.sdkman/candidates/java/current}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${DSH_HOST_USER_HOME:-/home/xel}/.local/bin:${DSH_HOST_USER_HOME:-/home/xel}/.cargo/bin:${DSH_HOST_USER_HOME:-/home/xel}/.local/go-current/bin:${DSH_HOST_USER_HOME:-/home/xel}/go/bin:${DSH_HOST_USER_HOME:-/home/xel}/.bun/bin:${DSH_HOST_USER_HOME:-/home/xel}/.sdkman/candidates/kotlin/current/bin
       - TS_AUTHKEY=${TS_AUTHKEY:-}
       - TS_HOSTNAME=${TS_HOSTNAME:-dsh}
       - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:-}

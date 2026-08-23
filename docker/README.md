@@ -31,7 +31,7 @@ The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not
 docker build -t dsh-tailscale:local -f Dockerfile .
 ```
 
-The image installs the published `@deepseek-ai/dsh` package, its runtime peers, and pnpm for profile-plugin management from npm. `DSH_VERSION` defaults to `0.1.0-rc.8`, while `PNPM_VERSION` matches the repository's `packageManager`; update either build argument when its pinned release changes. `run-docker.sh` uses Compose's layer cache by default, so an unchanged relaunch skips the package-install layers; set `DSH_BUILD_NO_CACHE=1` only when an explicit clean rebuild is required.
+The image installs the published `@deepseek-ai/dsh` package, its runtime peers, pnpm for profile-plugin management from npm, Python 3 with pip, venv support, headers, and both command names, plus GCC, G++, make, and pkg-config for native builds. `DSH_VERSION` defaults to `0.1.1-rc.2`, while `PNPM_VERSION` matches the repository's `packageManager`; update either build argument when its pinned release changes. `run-docker.sh` uses Compose's layer cache by default, so an unchanged relaunch skips the package-install layers; set `DSH_BUILD_NO_CACHE=1` only when an explicit clean rebuild is required.
 
 ## Host requirements
 
@@ -43,7 +43,7 @@ The launcher requires:
 
 The launcher uses the first reachable container engine with a working Compose provider: Docker with its Compose plugin, then `podman compose`, then the `podman-compose` wrapper. A bare `docker` executable cannot mask a working podman installation. On SELinux hosts (Fedora enables it by default) both services set `label=disable` so the container may read the bind-mounted home and toolchains without relabeling them. Under rootless podman the launcher's generated override adds `userns_mode: keep-id`, which maps the invoking user's uid 1:1 into the container so files the agent creates in the mounted home belong to that user on the host. The container drops to the uid and gid that own `DSH_HOST_USER_HOME` (`DSH_UID`/`DSH_GID`), so hosts whose user is not uid 1000 work unchanged.
 
-The development toolchains are optional. The launcher discovers Flutter and Java from `PATH`, and the Android SDK from `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Android/Sdk`, `~/android-sdk`, `/usr/lib/android-sdk`, or `/opt/android-sdk`. A missing toolchain prints a warning and launches without it: the container then has no `flutter`, `adb`, or `java`, and no related mounts. An override that names a path without the expected executable (`DSH_HOST_FLUTTER_HOME`, `DSH_HOST_ANDROID_HOME`, `DSH_HOST_JAVA_HOME`) is skipped the same way.
+The development toolchains are optional. The launcher discovers Flutter and Java from `PATH`, and the Android SDK from `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Android/Sdk`, `~/android-sdk`, `/usr/lib/android-sdk`, or `/opt/android-sdk`. The Compose `PATH` also exposes conventional tools from the mounted home: `~/.cargo/bin` for Rust, `~/.local/go-current/bin` and `~/go/bin` for Go, `~/.bun/bin` for Bun, `~/.sdkman/candidates/kotlin/current/bin` for Kotlin, and `~/.local/bin` for user commands. A missing host toolchain is inert; an invalid explicit Flutter, Android, or Java override prints a warning and is skipped.
 
 Allow the current user to manage Tailscale Serve once if required:
 

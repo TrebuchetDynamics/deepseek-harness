@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-20-container-portability-podman-fedora.md
-2026-08-20-container-portability-podman-fedora.md: e8d83d71bd9ea7cbb08352791376a36d63d4e1a8
-2026-08-20-container-portability-podman-fedora.zh.md: 8aee09332ac0186f8f97a656730f7f51c9cce775
+2026-08-20-container-portability-podman-fedora.md: fa78937e710a8069ae450883d46729eb2349f874
+2026-08-20-container-portability-podman-fedora.zh.md: 4eb78c35a6a36eea4d2a6c93326fc502c7995bba
