@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Merge upstream/master into this fork's master, re-pin the Docker image, and
-# validate. Rerunnable: after a conflicted merge is resolved and committed by
-# hand, rerunning this script skips the merge and completes the remaining steps.
+# Merge upstream/master into this fork's master, re-pin the Docker image,
+# validate, and summarize the fork's remaining differences. Rerunnable: after
+# a conflicted merge is resolved and committed by hand, rerunning this script
+# skips the merge and completes the remaining steps.
 #
 #   ./upstream-merge.sh
 #
@@ -50,4 +51,11 @@ if git diff --name-only "$pre_merge_head" HEAD -- pnpm-lock.yaml | grep -q .; th
 fi
 
 pnpm run typecheck || die "typecheck failed; fix before pushing"
+
+echo
+echo "fork summary against upstream/master:"
+echo "  fork-only commits (excluding merges): $(git rev-list --count --no-merges upstream/master..HEAD)"
+git log --format='    %h %s' --no-merges upstream/master..HEAD
+git diff --stat --stat-count=40 upstream/master...HEAD
+
 echo "synced with upstream/master and validated; push with: git push"
