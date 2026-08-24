@@ -24,7 +24,7 @@ cd deepseek-harness
 ./start.sh
 ```
 
-[start.sh](start.sh) 会安装依赖、构建检出，并安装或更新一个重启后持续运行的非 root systemd 服务，使其可直接访问宿主用户的工具与文件。详见[原生服务部署](deployment/README.zh.md)。
+[start.sh](start.sh) 会安装依赖、构建检出，并安装或更新一个重启后持续运行的非 root systemd 服务。与 Docker 运行时不同，它不受显式挂载的容器路径、socket、设备与工具限制；agent 会获得服务用户的宿主权限。详见[原生服务部署](deployment/README.zh.md)。
 
 ### 通过 `npm` 运行
 

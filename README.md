@@ -22,7 +22,7 @@ cd deepseek-harness
 ./start.sh
 ```
 
-[start.sh](start.sh) installs dependencies, builds the checkout, and installs or updates a reboot-persistent non-root systemd service with direct access to the host user's tools and files. See [native service deployment](deployment/README.md).
+[start.sh](start.sh) installs dependencies, builds the checkout, and installs or updates a reboot-persistent non-root systemd service. Unlike the Docker runtime, it is not limited to explicitly mounted container paths, sockets, devices, and tools; the agent receives the service user's host permissions. See [native service deployment](deployment/README.md).
 
 ### Run from `npm`
 
