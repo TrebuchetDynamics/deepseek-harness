@@ -1,6 +1,7 @@
 # Agent Note: 移除宿主机原生 Web 服务启动器
 
 Status: implemented
+Archived: 2026-08-24
 
 [English](2026-08-22-remove-host-web-launcher.md) | 中文
 

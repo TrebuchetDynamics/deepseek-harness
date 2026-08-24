@@ -1,6 +1,7 @@
 # Agent Note: Remove the host-native Web service launcher
 
 Status: implemented
+Archived: 2026-08-24
 
 English | [中文](2026-08-22-remove-host-web-launcher.zh.md)
 

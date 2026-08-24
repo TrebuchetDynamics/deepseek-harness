@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docker/README.md
-README.md: 7014abcd7718fd47424e12285fbf758ed33f8fb6
-README.zh.md: 1657a78a687c4dd836f8d145a796dde1256bf624
+README.md: 0c0c39b6454b36149ad981709b34d7c4cc2a02ee
+README.zh.md: 26bd7baa3defb20cfe683cbd08b514eace949d61

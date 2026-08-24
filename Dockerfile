@@ -18,10 +18,16 @@
 ARG DSH_VERSION=0.1.1-rc.2
 ARG PNPM_VERSION=11.7.0
 
+# The client and maintained CLI plugins talk to an explicitly mounted host
+# engine; the image never starts its own daemon.
+FROM docker:28-cli AS docker-cli
+
 FROM node:24-bookworm-slim AS runtime
 
 # Tailscale binaries for the self-contained tailnet mode (TS_AUTHKEY).
 COPY --from=tailscale/tailscale:stable /usr/local/bin/tailscale /usr/local/bin/tailscaled /usr/local/bin/
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins
 
 ARG DSH_VERSION
 ARG PNPM_VERSION

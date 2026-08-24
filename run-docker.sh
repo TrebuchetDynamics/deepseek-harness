@@ -5,10 +5,12 @@
 # mounted into the container when present; a missing toolchain is a warning
 # that removes it from the container, not a launch failure.
 set -euo pipefail
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+cd "$SCRIPT_DIR"
+source "$SCRIPT_DIR/scripts/deployment/common.sh"
 
-die() { echo "error: $*" >&2; exit 1; }
-warn() { echo "warning: $*" >&2; }
+die() { dsh_die "$@"; exit 1; }
+warn() { dsh_warn "$@"; }
 
 [ "$(uname -s)" = Linux ] || die "run-docker.sh requires a Linux host"
 # The launcher cannot run without these; every other host dependency degrades.
@@ -16,14 +18,11 @@ for tool in node pnpm git curl tailscale flock readlink; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool executable not found on PATH"
 done
 
-# Compose recreation uses temporary container names, so concurrent launches conflict.
-exec 9<"$0"
-flock 9
-
 # --- Container runtime ---------------------------------------------------------
 # Auto-selection requires both a Compose frontend and a reachable engine. A
 # broken Docker installation therefore cannot mask a working Fedora/podman one.
 compose_cmd=()
+selected_runtime=""
 rootless_podman=0
 docker_reason="not found on PATH"
 podman_reason="not found on PATH"
@@ -39,6 +38,7 @@ select_docker() {
   docker compose version >/dev/null 2>&1 || { docker_reason="Compose plugin unavailable"; return 1; }
   docker info >/dev/null 2>&1 || { docker_reason="engine unreachable or permission denied"; return 1; }
   compose_cmd=(docker compose)
+  selected_runtime=docker
   return 0
 }
 
@@ -58,6 +58,7 @@ select_podman() {
     return 1
   fi
   [ "$rootless" = true ] && rootless_podman=1
+  selected_runtime=podman
   return 0
 }
 
@@ -84,7 +85,48 @@ case "${DSH_BUILD_NO_CACHE:-0}" in
   *) die "DSH_BUILD_NO_CACHE must be 0 or 1" ;;
 esac
 
+# A selected local Docker runtime is also available to agents by default. Its
+# daemon socket grants host-root-equivalent authority; set
+# DSH_ENABLE_HOST_DOCKER=0 to retain container-only access. Podman stays off
+# because it uses a different socket contract.
+host_docker_socket=""
+DSH_DOCKER_GID=""
+host_docker_default=0
+[ "$selected_runtime" = docker ] && host_docker_default=1
+case "${DSH_ENABLE_HOST_DOCKER:-$host_docker_default}" in
+  0) ;;
+  1)
+    [ "$selected_runtime" = docker ] || die "DSH_ENABLE_HOST_DOCKER=1 requires the selected runtime to be Docker"
+    if [ -n "${DSH_HOST_DOCKER_SOCKET:-}" ]; then
+      host_docker_socket="$DSH_HOST_DOCKER_SOCKET"
+    else
+      if [ -n "${DOCKER_HOST:-}" ]; then
+        docker_endpoint="$DOCKER_HOST"
+      elif ! docker_endpoint="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)"; then
+        die "cannot resolve the active Docker context endpoint"
+      fi
+      case "$docker_endpoint" in
+        unix://*) host_docker_socket="${docker_endpoint#unix://}" ;;
+        *) die "DSH_ENABLE_HOST_DOCKER=1 requires a local Unix Docker endpoint, got $docker_endpoint" ;;
+      esac
+    fi
+    case "$host_docker_socket" in /*) ;; *) die "Docker socket path must be absolute: $host_docker_socket" ;; esac
+    [ -S "$host_docker_socket" ] || die "Docker socket not found: $host_docker_socket"
+    DSH_DOCKER_GID="$(stat -c '%g' "$host_docker_socket")" || die "cannot read Docker socket group: $host_docker_socket"
+    [[ "$DSH_DOCKER_GID" =~ ^[0-9]+$ ]] || die "Docker socket group is not numeric: $DSH_DOCKER_GID"
+    export DSH_DOCKER_GID
+    ;;
+  *) die "DSH_ENABLE_HOST_DOCKER must be 0 or 1" ;;
+esac
+
 echo "container runtime: ${compose_cmd[*]} (build cache: $build_cache)"
+if [ -n "$host_docker_socket" ]; then
+  echo "host Docker: enabled via $host_docker_socket (root-equivalent daemon access)"
+elif [ "$selected_runtime" = docker ]; then
+  echo "host Docker: disabled by DSH_ENABLE_HOST_DOCKER=0"
+else
+  echo "host Docker: unavailable with selected runtime $selected_runtime"
+fi
 
 export DSH_PUBLIC_PORT="${DSH_PUBLIC_PORT:-4080}"
 export DSH_BACKEND_PORT="${DSH_BACKEND_PORT:-4081}"
@@ -92,18 +134,16 @@ export DSH_BACKEND_PORT="${DSH_BACKEND_PORT:-4081}"
 # prevents clients from forging access to the task-board control routes.
 export DSH_TASK_BOARD_PROXY_TOKEN="${DSH_TASK_BOARD_PROXY_TOKEN:-$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))")}"
 DSH_STARTUP_TIMEOUT="${DSH_STARTUP_TIMEOUT:-90}"
-validate_port() {
-  local name="$1" value="$2"
-  [[ "$value" =~ ^[0-9]+$ ]] && (( 10#$value >= 1 && 10#$value <= 65535 )) || die "$name must be an integer from 1 to 65535"
-}
-validate_port DSH_PUBLIC_PORT "$DSH_PUBLIC_PORT"
-validate_port DSH_BACKEND_PORT "$DSH_BACKEND_PORT"
+dsh_validate_port DSH_PUBLIC_PORT "$DSH_PUBLIC_PORT"
+dsh_validate_port DSH_BACKEND_PORT "$DSH_BACKEND_PORT"
 (( 10#$DSH_PUBLIC_PORT != 10#$DSH_BACKEND_PORT )) || die "DSH_PUBLIC_PORT and DSH_BACKEND_PORT must be different"
 [[ "$DSH_STARTUP_TIMEOUT" =~ ^[0-9]+$ ]] && (( 10#$DSH_STARTUP_TIMEOUT > 0 )) || die "DSH_STARTUP_TIMEOUT must be a positive integer"
 DSH_STARTUP_TIMEOUT=$((10#$DSH_STARTUP_TIMEOUT))
 
 export DSH_HOST_USER_HOME="${DSH_HOST_USER_HOME:-$HOME}"
 [ -d "$DSH_HOST_USER_HOME" ] || die "host home directory not found: $DSH_HOST_USER_HOME"
+# Docker and native deployment mutate the same checkout and Tailscale route.
+dsh_acquire_deployment_lock "$DSH_HOST_USER_HOME"
 # The container drops to the host home's owner so files the agent creates in
 # the mounted home belong to the invoking user on the host (Fedora users are
 # commonly not uid 1000).
@@ -129,32 +169,13 @@ if ! node -e 'const p = require(process.argv[1]); process.exit(typeof p.scripts?
   die "package.json has no dsh script: $DSH_REPO/package.json"
 fi
 
-# @linxin666/dsh-web-ui-all already mounts dsh-better-sidebar. Listing the
-# standalone bundle too races its conditional self-disable and can register
-# /sidebar/api twice. Reject that known-invalid profile before stopping services.
-profile_manifest="$DSH_HOST_USER_HOME/.dsh/profiles/web/package.json"
-if [ -f "$profile_manifest" ]; then
-  if ! profile_check="$(node - "$profile_manifest" <<'NODE' 2>&1
-const fs = require('node:fs')
-const path = require('node:path')
-const manifestPath = process.argv[2]
-const profileDir = path.dirname(manifestPath)
-const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-const bundles = manifest.dsh?.profile?.bundles
-const aggregate = '@linxin666/dsh-web-ui-all'
-const sidebar = 'dsh-better-sidebar'
-if (!Array.isArray(bundles) || !bundles.includes(aggregate) || !bundles.includes(sidebar)) process.exit(0)
-const aggregateManifestPath = path.join(profileDir, 'node_modules', aggregate, 'package.json')
-if (!fs.existsSync(aggregateManifestPath)) process.exit(0)
-const aggregateManifest = JSON.parse(fs.readFileSync(aggregateManifestPath, 'utf8'))
-if (typeof aggregateManifest.dependencies?.[sidebar] !== 'string') process.exit(0)
-console.log(`profile web loads ${sidebar} from multiple bundles: ${aggregate}, ${sidebar}`)
-console.log(`remove the redundant direct bundle: pnpm dsh plugin --profile web remove ${sidebar}`)
-process.exit(2)
-NODE
-)"; then
-    die "$profile_check"
-  fi
+# Reject the known duplicate sidebar composition before stopping services.
+if ! profile_check="$(dsh_reject_duplicate_sidebar "$DSH_HOST_USER_HOME" 2>&1)"; then
+  die "$profile_check"
+fi
+
+if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet deepseek-harness.service; then
+  die "deepseek-harness.service is active; run ./start.sh stop before Docker deployment"
 fi
 
 # The running container reads this checkout directly. Stop it before pnpm
@@ -163,31 +184,7 @@ if ! "${compose_cmd[@]}" -f docker/docker-compose.yml stop dsh auth-proxy; then
   die "failed to stop the existing composition before rebuilding $DSH_REPO"
 fi
 echo "preparing checkout: $DSH_REPO"
-if ! pnpm --dir "$DSH_REPO" install --frozen-lockfile; then
-  die "checkout dependency installation failed: $DSH_REPO"
-fi
-if ! pnpm --dir "$DSH_REPO" run build; then
-  die "checkout build failed: $DSH_REPO"
-fi
-
-# Verify the artifacts consumed by `dsh web`; a successful custom build script
-# that omits them is still not a bootable checkout.
-missing_artifacts="$(node -e '
-const fs = require("node:fs"), path = require("node:path")
-const repo = process.argv[1]
-const missing = []
-if (!fs.existsSync(path.join(repo, "node_modules"))) missing.push("node_modules")
-if (!fs.existsSync(path.join(repo, "apps/web/dist/index.html"))) missing.push("apps/web/dist/index.html")
-for (const dir of fs.readdirSync(path.join(repo, "packages/client"))) {
-  const pkg = path.join(repo, "packages/client", dir)
-  const manifest = path.join(pkg, "package.json")
-  if (!fs.existsSync(manifest)) continue
-  const parsed = JSON.parse(fs.readFileSync(manifest, "utf8"))
-  if (parsed.dsh?.client && !fs.existsSync(path.join(pkg, "lib/client.js"))) missing.push(`${dir}/lib/client.js`)
-}
-console.log(missing.join(", "))
-' "$DSH_REPO")"
-[ -z "$missing_artifacts" ] || die "checkout build omitted required artifacts: $missing_artifacts"
+dsh_prepare_checkout "$DSH_REPO" pnpm
 
 # --- Optional host toolchains -------------------------------------------------
 # Each discovery leaves DSH_HOST_*_HOME empty when the toolchain is absent:
@@ -253,28 +250,11 @@ fi
 
 echo "host toolchains: flutter=${DSH_HOST_FLUTTER_HOME:-none} android=${DSH_HOST_ANDROID_HOME:-none} java=${DSH_HOST_JAVA_HOME:-none}"
 
-if ! tailscale_status="$(tailscale status --json 2>/dev/null)"; then
-  die "Tailscale status unavailable; connect this host with 'tailscale up'"
-fi
-if ! tailnet_output="$(printf '%s' "$tailscale_status" | node -e '
-let s = ""
-process.stdin.on("data", d => { s += d }).on("end", () => {
-  const status = JSON.parse(s)
-  console.log((status.Self?.DNSName ?? "").replace(/\.$/, ""))
-  console.log(status.User?.[String(status.Self?.UserID)]?.LoginName ?? "")
-})')"; then
-  die "Tailscale returned invalid status JSON"
-fi
-readarray -t tailnet <<<"$tailnet_output"
-magicdns="${tailnet[0]:-}"
-export TAILSCALE_OWNER="${TAILSCALE_OWNER:-${tailnet[1]:-}}"
-[ -n "$magicdns" ] || die "Tailscale MagicDNS name unavailable"
-[ -n "$TAILSCALE_OWNER" ] || die "Tailscale owner login unavailable"
-# Both the MagicDNS name and the raw tailnet IPv4 must pass the harness
-# browser-trust fences (/api and the sidebar plugin's /sidebar routes): a
-# browser reaching the GUI over the bare tailnet address carries the IP as
-# its Host, not the DNS name.
-tailnet_ip="$(tailscale ip -4 2>/dev/null | head -n1 || true)"
+dsh_load_tailscale_identity
+magicdns="$DSH_MAGICDNS"
+tailnet_ip="$DSH_TAILSCALE_IP"
+# Both the MagicDNS name and the raw tailnet IPv4 must pass the Harness browser
+# trust checks; an IP-based request carries the address as its Host value.
 export DSH_TRUSTED_HOSTS="${magicdns}${tailnet_ip:+ ${tailnet_ip}}${DSH_TRUSTED_HOSTS:+ ${DSH_TRUSTED_HOSTS}}"
 
 # Compose cannot express "mount this only when it exists on the host": a bind
@@ -305,12 +285,18 @@ needs_mount "$DSH_REPO" && add_host_volume "$DSH_REPO:$DSH_REPO"
 # Android device access: udev state and the USB bus, when the host has them.
 [ -d /run/udev ] && add_host_volume "/run/udev:/run/udev:ro"
 [ -d /dev/bus/usb ] && add_host_volume "/dev/bus/usb:/dev/bus/usb"
+[ -n "$host_docker_socket" ] && add_host_volume "$host_docker_socket:/var/run/docker.sock"
 
 compose_files=(-f docker/docker-compose.yml)
 # keep-id is a podman-only value; Docker's daemon rejects it at run time, so it
 # reaches Compose only through this generated override, never the base file.
 dsh_override=""
-[ "$rootless_podman" = 1 ] && dsh_override="    userns_mode: keep-id"$'\n'
+[ "$rootless_podman" = 1 ] && dsh_override+="    userns_mode: keep-id"$'\n'
+if [ -n "$host_docker_socket" ]; then
+  dsh_override+="    environment:"$'\n'
+  dsh_override+="      - DOCKER_HOST=unix:///var/run/docker.sock"$'\n'
+  dsh_override+="      - DSH_DOCKER_GID=$DSH_DOCKER_GID"$'\n'
+fi
 if [ -n "$host_volumes" ] || [ -n "$dsh_override" ]; then
   {
     echo "# Generated by run-docker.sh: optional host-specific mounts and runtime mapping."
@@ -347,18 +333,10 @@ if [ -z "$proxy_ready" ]; then
   diagnose_stack
   die "proxy did not start at $proxy within ${DSH_STARTUP_TIMEOUT}s"
 fi
-probe=( -sS -o /dev/null -w '%{http_code}' -X POST "$proxy/api/settings.describe" -H "Host: $magicdns" -H "Origin: https://$magicdns" -H 'content-type: application/json' --data '{}' )
-if ! denied="$(curl "${probe[@]}" -H 'Tailscale-User-Login: unauthorized@example.invalid')"; then
+if ! proxy_check="$(dsh_probe_identity_proxy "$proxy" "$magicdns" "$TAILSCALE_OWNER" 2>&1)"; then
   diagnose_stack
-  die "Tailscale identity proxy self-check request failed for the unauthorized identity"
-fi
-if ! allowed="$(curl "${probe[@]}" -H "Tailscale-User-Login: $TAILSCALE_OWNER")"; then
-  diagnose_stack
-  die "Tailscale identity proxy self-check request failed for $TAILSCALE_OWNER"
-fi
-if [ "$denied" != 403 ] || [ "$allowed" != 200 ]; then
-  diagnose_stack
-  die "Tailscale identity proxy self-check failed (denied=$denied, allowed=$allowed)"
+  printf '%s\n' "$proxy_check" >&2
+  exit 1
 fi
 
 tailscale serve --tcp=80 off >/dev/null 2>&1 || true

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-19-docker-launcher-degrades-missing-toolchains.md
-2026-08-19-docker-launcher-degrades-missing-toolchains.md: 311a82b0f1e2208c6a97b947142aab33cbe4acf5
-2026-08-19-docker-launcher-degrades-missing-toolchains.zh.md: 8559fb7b1226b6e44c355745ba2c25e7a61b4d36
+2026-08-19-docker-launcher-degrades-missing-toolchains.md: c6c253a8b6bcb19025ff6e2875a1caf668df4821
+2026-08-19-docker-launcher-degrades-missing-toolchains.zh.md: ab0110732f8fc0fb752e322af106e79158c35cc9

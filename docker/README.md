@@ -2,7 +2,9 @@
 
 English | [中文](README.zh.md)
 
-This personal-fork utility runs the published DeepSeek Harness Web GUI (`dsh web`) in a container with the host's repositories and, when installed on the host, Flutter, Android, Java, and USB device access.
+This personal-fork utility runs the published DeepSeek Harness Web GUI (`dsh web`) in a container with the host's repositories and, when enabled or installed on the host, Docker, Flutter, Android, Java, and USB device access.
+
+For direct access to every tool and credential in the user's login environment, [`start.sh`](../start.sh) provides the host-native systemd alternative. Both launchers use the shared identity proxy and deployment lock; ownership checks prevent them from taking the same ports or Tailscale Serve route concurrently. See the [native deployment reference](../deployment/README.md).
 
 ## Why loopback + Tailscale
 
@@ -10,7 +12,7 @@ This personal-fork utility runs the published DeepSeek Harness Web GUI (`dsh web
 
 Host mode uses three hops: host Tailscale Serve terminates tailnet HTTPS, a loopback-only Caddy proxy authorizes configuration requests from one Tailscale login, and the containerized Harness listens on a second loopback port. Tailscale Serve strips client-supplied identity headers and supplies the authenticated `Tailscale-User-Login`; Caddy rewrites `Host` and `Origin` to loopback only for the configured owner and privileged RPC paths. Other requests retain the tailnet authority and continue through the Harness browser-trust checks.
 
-The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not authentication. Tailnet ACLs control access to the GUI. The Caddy rule limits settings, credentials, model discovery, preset management, and native host operations to `TAILSCALE_OWNER`, but any tailnet user allowed to reach the GUI can run ordinary agent tools against the mounted host files.
+The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not authentication. Tailnet ACLs control access to the GUI. The Caddy rule limits settings, credentials, model discovery, preset management, native host operations, and Remote SSH to `TAILSCALE_OWNER`, but any tailnet user allowed to reach the GUI can run ordinary agent tools against the mounted host files.
 
 ## Files
 
@@ -19,7 +21,7 @@ The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not
 | `../Dockerfile`      | Runtime image containing the published `@deepseek-ai/dsh` CLI                                     |
 | `dsh-entrypoint.sh`  | Starts `dsh web`, exposes mounted toolchains, and optionally joins a container-owned tailnet node |
 | `docker-compose.yml` | Host-network composition, host development mounts, USB access, and proxy                          |
-| `Caddyfile`          | Loopback identity proxy for owner-only configuration RPCs                                         |
+| `../deployment/Caddyfile` | Shared loopback identity proxy for owner-only configuration RPCs                              |
 | `../run-docker.sh`   | Discovers host toolchains, builds, starts, verifies, and publishes the composition                |
 | `../.dockerignore`   | Excludes unnecessary build-context files                                                          |
 | `browser-e2e/`       | Reproducible Chromium runtime for the web browser e2e lane (`pnpm run test:web`)                  |
@@ -31,7 +33,7 @@ The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not
 docker build -t dsh-tailscale:local -f Dockerfile .
 ```
 
-The image installs the published `@deepseek-ai/dsh` package, its runtime peers, pnpm for profile-plugin management from npm, Python 3 with pip, venv support, headers, and both command names, plus GCC, G++, make, and pkg-config for native builds. `DSH_VERSION` defaults to `0.1.1-rc.2`, while `PNPM_VERSION` matches the repository's `packageManager`; update either build argument when its pinned release changes. `run-docker.sh` uses Compose's layer cache by default, so an unchanged relaunch skips the package-install layers; set `DSH_BUILD_NO_CACHE=1` only when an explicit clean rebuild is required.
+The image installs the published `@deepseek-ai/dsh` package, its runtime peers, pnpm for profile-plugin management from npm, the Docker 28 client with its maintained CLI plugins, Python 3 with pip, venv support, headers, and both command names, plus GCC, G++, make, and pkg-config for native builds. It does not run a Docker daemon. `DSH_VERSION` defaults to `0.1.1-rc.2`, while `PNPM_VERSION` matches the repository's `packageManager`; update either build argument when its pinned release changes. `run-docker.sh` uses Compose's layer cache by default, so an unchanged relaunch skips the package-install layers; set `DSH_BUILD_NO_CACHE=1` only when an explicit clean rebuild is required.
 
 ## Host requirements
 
@@ -39,7 +41,7 @@ The launcher requires:
 
 - a Linux host already logged into Tailscale, with Node.js, pnpm, Git, curl, `flock`, and `readlink` on `PATH`; and
 - a container runtime plus Compose — Docker, or podman with `docker-compose`/`podman-compose`; and
-- a repository checkout with a lockfile. Before stopping its existing composition, the launcher rejects a `web` profile that lists both `@linxin666/dsh-web-ui-all` and `dsh-better-sidebar` when the installed aggregate declares that sidebar dependency, printing the exact `dsh plugin remove` command. It then runs `pnpm install --frozen-lockfile` and `pnpm run build` in the checkout and verifies the web frontend dist and every client package's `lib/client.js` before building the image. Installation, compilation, or missing-artifact failures leave the services stopped instead of exposing a process to partially replaced dependencies or assets.
+- a repository checkout with a lockfile. Before stopping its existing composition, the launcher rejects a `web` profile that lists both `@linxin666/dsh-web-ui-all` and `dsh-better-sidebar` when the installed aggregate declares that sidebar dependency, printing the exact `dsh plugin remove` command. It then runs `pnpm install --frozen-lockfile` and `pnpm run build` in the checkout and verifies the web frontend dist and every client package's `lib/client.js` before building the image. Installation, compilation, or missing-artifact failures leave the services stopped instead of exposing a process to partially replaced dependencies or assets. An active owned `deepseek-harness.service` is rejected before the Docker composition stops or rebuilds; stop or uninstall the native service first.
 
 The launcher uses the first reachable container engine with a working Compose provider: Docker with its Compose plugin, then `podman compose`, then the `podman-compose` wrapper. A bare `docker` executable cannot mask a working podman installation. On SELinux hosts (Fedora enables it by default) both services set `label=disable` so the container may read the bind-mounted home and toolchains without relabeling them. Under rootless podman the launcher's generated override adds `userns_mode: keep-id`, which maps the invoking user's uid 1:1 into the container so files the agent creates in the mounted home belong to that user on the host. The container drops to the uid and gid that own `DSH_HOST_USER_HOME` (`DSH_UID`/`DSH_GID`), so hosts whose user is not uid 1000 work unchanged.
 
@@ -80,6 +82,14 @@ The optional `@linxin666/dsh-client-ui-task-board` keeps its control routes behi
 
 The host home is mounted read-write at the same path inside the container. The launcher also writes a per-launch Compose override file mounting the JDK read-only, plus the Android SDK, the repository, udev data, and the USB bus — each only when it exists on the host, because Compose cannot express a conditional bind mount and would otherwise let the daemon create an empty root-owned directory at the missing path. Toolchains that already live under the mounted home need no extra mount. The entrypoint links `flutter`, `dart`, `adb`, and `java` into `/usr/local/bin` when their SDKs are available, because login shells may reset `PATH`.
 
+When the launcher selects a local Docker runtime, it exposes that engine to agents by default so deployment scripts observe the same capability as the host. The daemon socket grants host-root-equivalent authority; opt out for container-only access:
+
+```sh
+DSH_ENABLE_HOST_DOCKER=0 ./run-docker.sh
+```
+
+The launcher accepts only a local Unix Docker endpoint, taking `DOCKER_HOST` before the active context, mounts its socket at `/var/run/docker.sock`, and preserves the socket's numeric group while dropping to `DSH_UID`/`DSH_GID`. `DSH_HOST_DOCKER_SOCKET` overrides endpoint discovery for a nonstandard local socket. Missing sockets, remote endpoints, and invalid group metadata fail before the running composition is stopped. Podman does not expose a Docker socket to agents; use Remote SSH when the engine is intentionally remote.
+
 Set `DSH_HOST_USER_HOME` when the host home is not `$HOME`, `DSH_HOST_WORKSPACE` to override the agent working directory (default `$HOME/git`, falling back to `$HOME` with a warning), and `DSH_HOST_FLUTTER_HOME`, `DSH_HOST_ANDROID_HOME`, or `DSH_HOST_JAVA_HOME` to override toolchain discovery.
 
 ## Run as a separate tailnet node
@@ -109,6 +119,8 @@ A direct Compose invocation skips the launcher-generated override file, so it mo
 | `DSH_PUBLIC_PORT`       | `4080`                  | Host loopback port for Caddy and Tailscale Serve              |
 | `DSH_BACKEND_PORT`      | `4081`                  | Host loopback port for `dsh web`; must differ from the public port |
 | `DSH_CONTAINER_RUNTIME` | `auto`                  | `auto`, `docker`, or `podman`; the selected engine must be reachable |
+| `DSH_ENABLE_HOST_DOCKER` | `1` with Docker; `0` with podman | Set to `0` to withhold the selected local Docker engine from agents |
+| `DSH_HOST_DOCKER_SOCKET` | `DOCKER_HOST` or active context socket | Absolute local socket override used only when host Docker control is enabled |
 | `DSH_BUILD_NO_CACHE`    | `0`                     | Set to `1` for an explicit clean image rebuild                |
 | `DSH_STARTUP_TIMEOUT`   | `90`                    | Seconds to wait for the health-gated auth proxy               |
 | `DSH_HOST_USER_HOME`    | `$HOME` in the launcher | Host home mounted read-write at the same container path       |
@@ -139,4 +151,4 @@ The Docker utility stays outside product packages so upstream merges normally ha
 
 - The image runs the published packages at `DSH_VERSION`, not the current monorepo source.
 - A new loopback-only RPC must be added to the Caddy owner matcher before it becomes remotely configurable; omission fails closed with HTTP 403.
-- Host mode is intentionally machine-specific and grants the container read-write access to the host home. Restrict GUI reachability to tailnet identities trusted to execute shell commands against that data.
+- Host mode is intentionally machine-specific and grants the container read-write access to the host home. When the launcher selects Docker and it is not explicitly disabled, agents can mount or modify any host path through the daemon and therefore have host-root-equivalent authority. Restrict GUI reachability to tailnet identities trusted for the enabled access.

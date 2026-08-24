@@ -36,6 +36,10 @@ pnpm dsh web
 
 `pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
 
+### Install the Web UI as a native service (`start.sh`)
+
+For unrestricted access to the host user's tools and files, [start.sh](start.sh) installs a reboot-persistent non-root systemd service behind the same Tailscale identity proxy. See [deployment/README.md](deployment/README.md).
+
 ### Run the Web UI in Docker (`run-docker.sh`)
 
 For a containerized deployment, [run-docker.sh](run-docker.sh) builds the image and runs the Web UI behind a loopback Tailscale-identity proxy, publishing it as `https://<host>.<tailnet>.ts.net/`. See [docker/README.md](docker/README.md).

@@ -29,7 +29,7 @@
 
 	@owner_sensitive {
 		header Tailscale-User-Login {$TAILSCALE_OWNER}
-		path /api/settings.* /api/credentials.* /api/llm.providers /api/llm.discoverModels /api/agentPreset.read /api/agentPreset.copy /api/agentPreset.openDocument /api/agentPreset.remove /api/host.pickDirectory /api/host.openPath /api/dsh-skill-explorer/*
+		path /api/settings.* /api/credentials.* /api/llm.providers /api/llm.discoverModels /api/agentPreset.read /api/agentPreset.copy /api/agentPreset.openDocument /api/agentPreset.remove /api/host.pickDirectory /api/host.openPath /api/dsh-skill-explorer/* /api/dsh-ssh/*
 	}
 
 	handle @owner_sensitive {

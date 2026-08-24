@@ -6,11 +6,11 @@ Status: implemented
 
 ## 问题
 
-浏览器设置层把所有非 loopback URL 判定为永久不可用，并且从不调用 `settings.describe`。这在展示代码中重复了 Host 的授权判断：经认证的反向代理可以向 Host 提供获准的 loopback authority，但 Models 页面仍以 `settings are unavailable in this browser` 失败。仅限属主的插件路由也有相同的集成要求：Task Board 会拒绝普通 trusted Host，并要求列入 allowlist 的代理 authority 与私有令牌。
+浏览器设置层把所有非 loopback URL 判定为永久不可用，并且从不调用 `settings.describe`。这在展示代码中重复了 Host 的授权判断：经认证的反向代理可以向 Host 提供获准的 loopback authority，但 Models 页面仍以 `settings are unavailable in this browser` 失败。仅限属主的插件路由也有相同的集成要求：Task Board 会拒绝普通 trusted Host，并要求列入 allowlist 的代理 authority 与私有令牌。Remote SSH 独立要求回环 socket、Host 与浏览器 Origin 标记，因此代理不转换 authority 时，即使已认证属主也会被其 API 与终端拒绝。
 
 ## 决策
 
-浏览器设置始终使用 Host transport。Host 仍是授权权威：普通远程请求由 Host 拒绝，而经认证的反向代理只能为已识别的属主改写 `Host` 与 `Origin`。Tailscale Caddy matcher 包含远程 GUI 使用的配置方法与仅限属主的插件路由。
+浏览器设置始终使用 Host transport。Host 仍是授权权威：普通远程请求由 Host 拒绝，而经认证的反向代理只能为已识别的属主改写 `Host` 与 `Origin`。Tailscale Caddy matcher 包含远程 GUI 使用的配置方法与仅限属主的插件路由。只有 matcher 验证 `TAILSCALE_OWNER` 后，Remote SSH 的 HTTP 与 WebSocket 请求才会收到回环 Host 与 Origin 转换；其他身份保留公开 authority，并由插件的回环栅栏拒绝。
 
 Task Board 保留自身的代理防护，而不接收 loopback 改写。启动器生成新的随机令牌，仅与 Host 和 Caddy 容器共享；Caddy 只在匹配 `TAILSCALE_OWNER` 后注入该令牌，fallback 代理会移除客户端提供的同名令牌。Caddy 保留浏览器 authority 与请求标记；尤其不会为同源 GET 请求合成空的 `Origin`，这类请求以 `Sec-Fetch-Site: same-origin` 作为浏览器证明。
 
@@ -26,4 +26,4 @@ Task Board 保留自身的代理防护，而不接收 loopback 改写。启动�
 
 ## 后果
 
-经过认证的 Tailscale 属主可以加载 Models、持久设置页面和明确集成的属主控制。其他 tailnet 身份仍由 Host 拒绝，因为 Caddy 不会为其改写 authority 或提供私有路由凭据。聚焦客户端测试覆盖远程 mirror 和 scope 激活；经 Tailscale Serve 的真实 Playwright 检查覆盖设置读取，以及 Task Board 的状态、事件、创建、筛选、移动与删除操作。
+经过认证的 Tailscale 属主可以加载 Models、持久设置页面、Remote SSH 和明确集成的属主控制。其他 tailnet 身份仍由 Host 拒绝，因为 Caddy 不会为其改写 authority 或提供私有路由凭据。聚焦客户端测试覆盖远程 mirror 和 scope 激活；经 Tailscale Serve 的真实 Playwright 检查覆盖设置读取，以及 Task Board 的状态、事件、创建、筛选、移动与删除操作。

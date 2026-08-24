@@ -100,7 +100,7 @@ services:
       - TAILSCALE_OWNER=${TAILSCALE_OWNER:-__remote_settings_disabled__}
       - DSH_TASK_BOARD_PROXY_TOKEN=${DSH_TASK_BOARD_PROXY_TOKEN:-}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../deployment/Caddyfile:/etc/caddy/Caddyfile:ro
 
 volumes:
   tsstate:

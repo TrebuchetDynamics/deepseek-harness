@@ -22,6 +22,7 @@
 #                     appended to the derived tailnet hostname
 #   DSH_UID           uid the harness drops to (default 1000)
 #   DSH_GID           gid the harness drops to (default 1000)
+#   DSH_DOCKER_GID    optional supplementary gid for a mounted Docker socket
 #
 # The application runs as the uid/gid given by DSH_UID/DSH_GID (run-docker.sh
 # sets them to the host home's owner, which need not match the image's 'node'
@@ -124,7 +125,13 @@ else
 fi
 
 echo "dsh web on http://127.0.0.1:$DSH_PORT (loopback) from $(pwd) as uid=$DSH_UID gid=$DSH_GID"
-# --clear-groups (not --init-groups): DSH_UID usually has no passwd entry in
-# the image, and supplementary groups are not needed to write the mounted home.
-exec setpriv --reuid="$DSH_UID" --regid="$DSH_GID" --clear-groups \
+# DSH_UID usually has no passwd entry in the image, so never initialize groups
+# by name. A launcher-mounted Docker socket contributes its numeric host gid;
+# otherwise clear every supplementary group before dropping privileges.
+group_args=(--clear-groups)
+if [[ -n "${DSH_DOCKER_GID:-}" ]]; then
+  [[ "$DSH_DOCKER_GID" =~ ^[0-9]+$ ]] || { echo "DSH_DOCKER_GID must be numeric" >&2; exit 1; }
+  group_args=(--groups "$DSH_DOCKER_GID")
+fi
+exec setpriv --reuid="$DSH_UID" --regid="$DSH_GID" "${group_args[@]}" \
   "${DSH_LAUNCH[@]}" "${DSH_ARGS[@]}"
