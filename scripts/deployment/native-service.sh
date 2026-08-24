@@ -64,6 +64,7 @@ Environment=$(native_systemd_quote "HOME=$home")
 Environment=$(native_systemd_quote "USER=$user")
 Environment=$(native_systemd_quote "DSH_HOME=$home/.dsh")
 Environment=$(native_systemd_quote "DSH_NODE_BIN=${DSH_NODE_BIN:-node}")
+Environment=$(native_systemd_quote "DSH_PNPM_BIN=${DSH_PNPM_BIN:-pnpm}")
 Environment=$(native_systemd_quote "DSH_RUNTIME_ROOT=$DSH_LIBEXEC_DIR")
 EnvironmentFile=$(native_systemd_path "$config_path")
 RuntimeDirectory=deepseek-harness
@@ -210,15 +211,14 @@ native_install_missing_host_packages() {
     dsh_die "could not prevent the Caddy package service from starting during installation"
     return 1
   }
-  dsh_info "Installing the missing Caddy package with $distribution"
   case "$distribution" in
     ubuntu)
-      apt-get update || install_status=$?
+      dsh_run_step "Refreshing Ubuntu package metadata" apt-get update || install_status=$?
       if [ "$install_status" = 0 ]; then
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends caddy || install_status=$?
+        dsh_run_step "Installing the Caddy package" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends caddy || install_status=$?
       fi
       ;;
-    fedora) dnf install -y caddy || install_status=$? ;;
+    fedora) dsh_run_step "Installing the Caddy package" dnf install -y caddy || install_status=$? ;;
   esac
   native_reconcile_caddy_package_service || cleanup_status=$?
   [ "$install_status" = 0 ] || {
@@ -254,7 +254,12 @@ native_require_user_tools() {
     dsh_die "resolved Node.js path is not executable: $DSH_NODE_BIN"
     return 1
   }
-  export DSH_NODE_BIN
+  DSH_PNPM_BIN="$(native_login_exec "$user" "$home" "$login_shell" 'command -v pnpm')" || return 1
+  [ -x "$DSH_PNPM_BIN" ] || {
+    dsh_die "resolved pnpm path is not executable: $DSH_PNPM_BIN"
+    return 1
+  }
+  export DSH_NODE_BIN DSH_PNPM_BIN
   node_version="$("$DSH_NODE_BIN" -p "process.versions.node")" || return 1
   dsh_node -e '
 const [major, minor] = process.argv[1].split(".").map(Number)
@@ -263,7 +268,7 @@ process.exit((major === 22 && minor >= 19) || major >= 24 ? 0 : 1)
     dsh_die "Node.js $node_version is unsupported; install ^22.19.0 or >=24.0.0"
     return 1
   }
-  pnpm_version="$(native_login_exec "$user" "$home" "$login_shell" 'pnpm --version')" || return 1
+  pnpm_version="$(PATH="${DSH_NODE_BIN%/*}:$PATH" "$DSH_PNPM_BIN" --version)" || return 1
   [ "$pnpm_version" = 11.7.0 ] || {
     dsh_die "pnpm $pnpm_version is unsupported; install pnpm 11.7.0"
     return 1
@@ -481,65 +486,48 @@ native_validate_owned_route() {
   }
 }
 
-native_detect_owned_docker() {
-  local repo="$1" expected_compose="$1/docker/docker-compose.yml"
-  local id service working_dir config_files file bind_sources source dsh_id="" proxy_id="" saw_harness=0
+native_remove_owned_docker() {
+  local repo="$1" expected_compose="$1/docker/docker-compose.yml" output id service working_dir canonical_working_dir config_files file
+  local dsh_id="" proxy_id=""
   local -a ids=() files=()
-  command -v docker >/dev/null 2>&1 || return 2
-  mapfile -t ids < <(docker ps -q --filter label=com.docker.compose.project)
-  [ "${#ids[@]}" -gt 0 ] || return 2
+  command -v docker >/dev/null 2>&1 || return 0
+  output="$(docker ps -q --filter label=com.docker.compose.project)" || {
+    dsh_warn "cannot inspect Docker; continuing with native port checks"
+    return 0
+  }
+  mapfile -t ids <<<"$output"
   for id in "${ids[@]}"; do
+    [ -n "$id" ] || continue
     service="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.service" }}' "$id")" || return 1
+    case "$service" in dsh | auth-proxy) ;; *) continue ;; esac
     working_dir="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$id")" || return 1
+    canonical_working_dir="$(readlink -f "$working_dir")" || continue
+    [ "$canonical_working_dir" = "$repo" ] || [ "$canonical_working_dir" = "$repo/docker" ] || continue
     config_files="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' "$id")" || return 1
-    case "$service" in dsh|auth-proxy) saw_harness=1 ;; *) continue ;; esac
-    [ "$(readlink -f "$working_dir")" = "$repo" ] || continue
     IFS=, read -ra files <<<"$config_files"
     local owns_compose=0
     for file in "${files[@]}"; do
-      [ "$file" = "$expected_compose" ] && owns_compose=1
+      [ "$file" != "$expected_compose" ] || owns_compose=1
     done
     [ "$owns_compose" = 1 ] || continue
     case "$service" in
-      dsh)
-        [ -z "$dsh_id" ] || { dsh_die "multiple owned Docker dsh containers are running"; return 1; }
-        dsh_id="$id"
-        ;;
-      auth-proxy)
-        [ -z "$proxy_id" ] || { dsh_die "multiple owned Docker auth-proxy containers are running"; return 1; }
-        proxy_id="$id"
-        ;;
+      dsh) [ -z "$dsh_id" ] || { dsh_die "multiple owned Docker dsh containers are running"; return 1; }; dsh_id="$id" ;;
+      auth-proxy) [ -z "$proxy_id" ] || { dsh_die "multiple owned Docker auth-proxy containers are running"; return 1; }; proxy_id="$id" ;;
     esac
   done
   if [ -z "$dsh_id" ] && [ -z "$proxy_id" ]; then
-    [ "$saw_harness" = 0 ] && return 2
-    dsh_die "running Docker Harness labels do not belong to this checkout"
-    return 1
+    return 0
   fi
   [ -n "$dsh_id" ] && [ -n "$proxy_id" ] || {
-    dsh_die "owned Docker Harness is incomplete; expected dsh and auth-proxy containers"
+    dsh_die "owned Docker Harness is incomplete; refusing automatic takeover"
     return 1
   }
-  for id in "$dsh_id" "$proxy_id"; do
-    bind_sources="$(docker inspect -f '{{range .Mounts}}{{if eq .Type "bind"}}{{println .Source}}{{end}}{{end}}' "$id")" || return 1
-    while IFS= read -r source; do
-      [ -z "$source" ] || [ -e "$source" ] || {
-        dsh_die "Docker rollback source is missing: $source; refresh the composition with './run-docker.sh' before native migration"
-        return 1
-      }
-    done <<<"$bind_sources"
-  done
-  native_assert_expected_serve_target "http://127.0.0.1:$DSH_PUBLIC_PORT" || return 1
-  printf '%s\n%s\n' "$dsh_id" "$proxy_id"
-}
-
-native_wait_docker_proxy() {
-  local attempt
-  for ((attempt = 0; attempt < 30; attempt++)); do
-    curl -fsS -o /dev/null "http://127.0.0.1:$DSH_PUBLIC_PORT/" 2>/dev/null && return 0
-    sleep 1
-  done
-  dsh_die "restored Docker proxy did not become ready within 30 seconds"
+  dsh_info "Removing the owned Docker deployment before native startup"
+  docker rm -f "$dsh_id" "$proxy_id" >/dev/null || {
+    dsh_die "could not remove the owned Docker deployment"
+    return 1
+  }
+  DSH_DOCKER_REMOVED=1
 }
 
 native_assert_ports_available() {
@@ -556,68 +544,10 @@ native_assert_ports_available() {
   done
 }
 
-native_start_with_docker_migration() {
-  local repo="$1" docker_output detection_status migration_source migration_file
-  local migration_pending=0 migration_restore_succeeded=0
-  local -a docker_ids=()
-
-  native_migration_abort() {
-    trap - EXIT INT TERM HUP
-    [ "$migration_pending" = 1 ] || return 0
-    systemctl disable --now "$DSH_SERVICE_NAME" >/dev/null 2>&1 || true
-    if docker start "${docker_ids[@]}" >/dev/null && native_wait_docker_proxy; then
-      migration_restore_succeeded=1
-    fi
-    migration_pending=0
-    rm -f "$migration_file"
-  }
-
-  if docker_output="$(native_detect_owned_docker "$repo")"; then
-    mapfile -t docker_ids <<<"$docker_output"
-    dsh_info "Migrating the owned Docker deployment to the native service"
-    install -d -o root -g root -m 0700 "$DSH_INSTALL_RUNTIME_DIR"
-    migration_source="$(mktemp)"
-    migration_file="$DSH_INSTALL_RUNTIME_DIR/containers"
-    printf '%s\n' "${docker_ids[@]}" >"$migration_source"
-    if ! native_install_file_atomically "$migration_source" "$migration_file" 0600; then
-      rm -f "$migration_source"
-      return 1
-    fi
-    rm -f "$migration_source"
-    migration_pending=1
-    trap native_migration_abort EXIT
-    trap 'native_migration_abort; exit 130' INT HUP
-    trap 'native_migration_abort; exit 143' TERM
-
-    if ! docker stop "${docker_ids[@]}" >/dev/null; then
-      native_migration_abort
-      dsh_die "failed to stop owned Docker Harness containers"
-      return 1
-    fi
-    if ! native_start_and_verify; then
-      native_migration_abort
-      if [ "$migration_restore_succeeded" = 1 ]; then
-        dsh_die "native service failed; restored Docker Harness"
-        return 1
-      fi
-      dsh_die "native service failed and Docker rollback failed; inspect systemd and containers ${docker_ids[*]}"
-      return 1
-    fi
-
-    migration_pending=0
-    rm -f "$migration_file"
-    trap - EXIT INT TERM HUP
-    docker rm "${docker_ids[@]}" >/dev/null || {
-      dsh_die "native service is ready but stopped Docker containers could not be removed: ${docker_ids[*]}"
-      return 1
-    }
-    dsh_info "Native readiness verified; removed the replaced Docker containers"
-    return 0
-  else
-    detection_status=$?
-  fi
-  [ "$detection_status" -eq 2 ] || return "$detection_status"
-  dsh_info "No owned Docker deployment is running; checking native ports"
+native_start_service() {
+  local repo="$1"
+  native_remove_owned_docker "$repo" || return 1
+  dsh_info "Checking native service ports"
   native_assert_ports_available || return 1
   native_start_and_verify
 }
@@ -685,7 +615,7 @@ native_install() {
     update_needs_restart=1
     trap native_restart_interrupted_update EXIT
   fi
-  dsh_info "Installing dependencies and building the checkout as $user"
+  dsh_info "Preparing the checkout as $user"
   if ! native_prepare_checkout_as_user "$user" "$home" "$login_shell" "$repo"; then
     native_restart_interrupted_update
     return 1
@@ -713,7 +643,7 @@ native_install() {
     rm -f "$unit_tmp"
     return 1
   fi
-  if ! systemd-analyze verify "$unit_tmp"; then
+  if ! dsh_run_step "Verifying the generated systemd unit" systemd-analyze verify "$unit_tmp"; then
     rm -f "$unit_tmp"
     dsh_die "generated systemd unit failed verification"
     return 1
@@ -739,13 +669,17 @@ native_install() {
     fi
     return 1
   fi
-  if ! native_start_with_docker_migration "$repo"; then
+  if ! native_start_service "$repo"; then
     if [ "$updating" = 0 ]; then
       systemctl disable --now "$DSH_SERVICE_NAME" >/dev/null 2>&1 || true
       rm -f "$DSH_UNIT_FILE" "$DSH_STATE_FILE"
       rm -rf "$DSH_LIBEXEC_DIR"
       systemctl daemon-reload
-      dsh_warn "removed the failed fresh native installation; Docker rollback, when applicable, has completed"
+      if [ "${DSH_DOCKER_REMOVED:-0}" = 1 ]; then
+        dsh_warn "removed the failed fresh native installation after Docker takeover; rerun install after resolving the reported failure"
+      else
+        dsh_warn "removed the failed fresh native installation; existing external services were not changed"
+      fi
     fi
     return 1
   fi
@@ -813,6 +747,7 @@ native_as_root() {
     DSH_NODE_BIN="$node_bin" \
     DSH_DEPLOYMENT_LOCK_HELD=1 \
     DSH_CALLER_PATH="$PATH" \
+    DSH_VERBOSE="${DSH_VERBOSE:-0}" \
     "$repo/start.sh" "$command"
 }
 
@@ -988,7 +923,12 @@ native_service_run() {
     dsh_die "Node.js is unavailable through the service login shell"
     return 1
   }
-  export DSH_NODE_BIN
+  [ -x "${DSH_PNPM_BIN:-}" ] || DSH_PNPM_BIN="$("$login_shell" -lc 'command -v pnpm')"
+  [ -x "$DSH_PNPM_BIN" ] || {
+    dsh_die "pnpm is unavailable through the service login shell"
+    return 1
+  }
+  export DSH_NODE_BIN DSH_PNPM_BIN
   token="$(dsh_node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
   cat >"$backend_launcher" <<'BACKEND'
 #!/usr/bin/env bash
@@ -998,9 +938,9 @@ IFS=',' read -ra extra_hosts <<<"${DSH_EXTRA_TRUSTED_HOSTS:-}"
 for host in "${extra_hosts[@]}"; do
   [ -z "$host" ] || args+=(--trusted-host "$host")
 done
-exec pnpm "${args[@]}"
+PATH="${DSH_NODE_BIN%/*}:$PATH" exec "$DSH_PNPM_BIN" "${args[@]}"
 BACKEND
-  chmod 0700 "$backend_launcher"
+  chmod 0600 "$backend_launcher"
 
   cleanup_native_runtime() {
     trap - INT TERM EXIT
@@ -1026,15 +966,19 @@ BACKEND
 
   export DSH_BACKEND_LAUNCHER="$backend_launcher"
   export DSH_EXTRA_TRUSTED_HOSTS DSH_MAGICDNS DSH_TAILSCALE_IP
-  HOME="$service_home" \
+  # Hardened hosts may mount the systemd runtime directory with noexec.
+  # Only this supervisor owns systemd readiness notifications.
+  NOTIFY_SOCKET= \
+    HOME="$service_home" \
     USER="$service_user" \
     DSH_HOME="$service_home/.dsh" \
     DSH_PORT="$DSH_BACKEND_PORT" \
     DSH_TASK_BOARD_PROXY_TOKEN="$token" \
-    setsid "$login_shell" -lc 'exec "$DSH_BACKEND_LAUNCHER"' &
+    setsid "$login_shell" -lc 'exec bash "$DSH_BACKEND_LAUNCHER"' &
   backend_pid=$!
 
-  HOME="$service_home" \
+  NOTIFY_SOCKET= \
+    HOME="$service_home" \
     USER="$service_user" \
     DSH_CADDY_CONFIG="$runtime_root/deployment/Caddyfile" \
     DSH_TASK_BOARD_PROXY_TOKEN="$token" \
@@ -1054,7 +998,7 @@ BACKEND
     systemd-notify --status="Waiting for the Caddy identity proxy" 2>/dev/null || true
     dsh_wait_http_process "$caddy_pid" "http://127.0.0.1:$DSH_PUBLIC_PORT/" "$DSH_STARTUP_TIMEOUT" "Caddy proxy" "$startup_deadline" || return $?
     systemd-notify --status="Checking owner-only proxy authorization" 2>/dev/null || true
-    dsh_probe_identity_proxy "http://127.0.0.1:$DSH_PUBLIC_PORT" "$DSH_MAGICDNS" "$configured_owner" || return $?
+    dsh_probe_identity_proxy "http://127.0.0.1:$DSH_PUBLIC_PORT" "$DSH_MAGICDNS" "$configured_owner" "$startup_deadline" || return $?
     systemd-notify --status="Publishing Tailscale HTTPS" 2>/dev/null || true
     tailscale serve --yes --bg --https="$DSH_HTTPS_PORT" "http://127.0.0.1:$DSH_PUBLIC_PORT" || {
       dsh_die "failed to publish $public_url with Tailscale Serve"

@@ -36,9 +36,9 @@ corepack prepare pnpm@11.7.0 --activate
 ./start.sh
 ```
 
-启动器仅为缺失的 Caddy 包安装、systemd、root 属主配置与 Tailscale 设置使用 `sudo`。它打印每个安装阶段，通过用户登录 shell 在原检出中完成准备，保留该用户的补充组，在切换前构建，并等待 systemd `Type=notify` 就绪结果。root 属主的启动器、代理配置与校验辅助程序位于 `/usr/local/libexec/deepseek-harness`；服务仍以非 root 用户直接运行检出。就绪后，`start.sh` 打印 URL 并返回调用 shell，已启用的服务则继续在后台运行。没有缓存 sudo 授权的非交互调用方会在更改 Docker、systemd 或 Serve 状态之前失败，并得到需要交互运行的确切命令。更新时会先停止已有且所有权匹配的原生服务，再替换检出产物；构建失败则重新启动已安装服务。
+启动器仅为缺失的 Caddy 包安装、确切的自有 Docker 接管、systemd、root 属主配置与 Tailscale 设置使用 `sudo`。它会为每个安装阶段显示实时旋转进度与耗时，同时隐藏成功的包管理器、构建与 unit 校验细节；执行 `DSH_VERBOSE=1 ./start.sh` 可在诊断时流式显示这些命令。它通过用户登录 shell 在原检出中完成准备，保留该用户的补充组，在切换前构建，并等待 systemd `Type=notify` 就绪结果。安装过程会把解析到的 Node.js 与 pnpm 路径写入 unit，因此重启不依赖 systemd 的默认 PATH。root 属主的启动器、代理配置与校验辅助程序位于 `/usr/local/libexec/deepseek-harness`；服务仍以非 root 用户直接运行检出。生成的后端启动器保持不可执行并由 Bash 读取运行，因此支持使用 `noexec` 挂载的 systemd 运行时目录。就绪后，`start.sh` 打印 URL 并返回调用 shell，已启用的服务则继续在后台运行。没有缓存 sudo 授权的非交互调用方会在更改 Docker、systemd 或 Serve 状态之前失败，并得到需要交互运行的确切命令。更新时会先停止已有且所有权匹配的原生服务，再替换检出产物；构建失败则重新启动已安装服务。
 
-如果该检出对应的确切 Docker 部署正在运行，安装过程会先验证两个 Compose 服务标签、规范化工作目录、Compose 配置标签和当前 Serve 目标，再停止其 `dsh` 与 `auth-proxy` 容器 ID。原生服务就绪后会删除已停止容器，但保留命名 volume；就绪失败时会重新启动相同 ID，并验证恢复后的回环代理。标签含糊、无关监听器、其他 Tailscale operator 或不同 Serve 目标都会导致快速失败，不会被替换。
+当该检出的确切 Docker 部署正在运行时，`start.sh` 会在完成原生构建与所有权检查后调用本地 Docker CLI，移除其 `dsh` 与 `auth-proxy` 容器再启动原生服务；命名 volume 会保留。它不会构建或启动 Docker，纯原生宿主无需 Docker，并会保留其他检出的容器。其他监听器、Tailscale operator 与 Serve 路由都会导致失败，不会被替换。接管是单向的：如果原生服务随后未能就绪，请修正报告的错误后重新运行 `start.sh`；已移除的容器不会重建。
 
 服务直接获得该用户的宿主权限与登录 shell 工具，而不是一组经过筛选的容器挂载。`docker` 组成员身份让 agent 可通过 Docker daemon 获得等同于宿主 root 的权限；请相应限制 tailnet 访问。
 

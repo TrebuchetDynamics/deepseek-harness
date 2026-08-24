@@ -10,6 +10,60 @@ dsh_info() { echo "==> $*"; }
 # Print a non-fatal deployment diagnostic.
 dsh_warn() { echo "warning: $*" >&2; }
 
+# Keep successful command output concise, show elapsed progress, and replay failures.
+dsh_run_step() {
+  local description="$1" log="" status=0 started=$SECONDS command_pid="" tick=0 frames='|/-\' monitor_enabled=0
+  local old_int old_term old_hup
+  shift
+  if [ "${DSH_VERBOSE:-0}" = 1 ]; then
+    dsh_info "$description"
+  else
+    log="$(mktemp)" || return 1
+  fi
+  old_int="$(trap -p INT)"
+  old_term="$(trap -p TERM)"
+  old_hup="$(trap -p HUP)"
+  trap 'trap - INT TERM HUP; kill -- "-$command_pid" 2>/dev/null || true; wait "$command_pid" 2>/dev/null || true; rm -f "$log"; exit 130' INT
+  trap 'trap - INT TERM HUP; kill -- "-$command_pid" 2>/dev/null || true; wait "$command_pid" 2>/dev/null || true; rm -f "$log"; exit 143' TERM
+  trap 'trap - INT TERM HUP; kill -- "-$command_pid" 2>/dev/null || true; wait "$command_pid" 2>/dev/null || true; rm -f "$log"; exit 129' HUP
+  case $- in *m*) monitor_enabled=1 ;; *) set -m ;; esac
+  if [ "${DSH_VERBOSE:-0}" = 1 ]; then
+    "$@" &
+  else
+    "$@" >"$log" 2>&1 &
+  fi
+  command_pid=$!
+  [ "$monitor_enabled" = 1 ] || set +m
+  if [ "${DSH_VERBOSE:-0}" != 1 ]; then
+    if [ -t 1 ]; then
+      while kill -0 "$command_pid" 2>/dev/null; do
+        printf '\r\033[2K==> %s [%s %ss]' "$description" "${frames:tick%4:1}" "$((SECONDS - started))"
+        tick=$((tick + 1))
+        sleep 0.2
+      done
+      printf '\r\033[2K'
+    else
+      dsh_info "$description"
+    fi
+  fi
+  wait "$command_pid" || status=$?
+  command_pid=""
+  [ -z "$old_int" ] && trap - INT || eval "$old_int"
+  [ -z "$old_term" ] && trap - TERM || eval "$old_term"
+  [ -z "$old_hup" ] && trap - HUP || eval "$old_hup"
+  if [ "${DSH_VERBOSE:-0}" = 1 ]; then
+    return "$status"
+  fi
+  if [ "$status" -eq 0 ]; then
+    dsh_info "$description done ($((SECONDS - started))s)"
+  else
+    dsh_info "$description failed ($((SECONDS - started))s)"
+    cat "$log" >&2
+  fi
+  rm -f "$log"
+  return "$status"
+}
+
 # Run the Node binary resolved from the service user's login shell.
 dsh_node() { "${DSH_NODE_BIN:-node}" "$@"; }
 
@@ -58,11 +112,11 @@ NODE
 dsh_prepare_checkout() {
   local repo="$1" pnpm_bin="$2" missing verifier
   verifier="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)/verify-deployment-artifacts.mjs"
-  "$pnpm_bin" --dir "$repo" install --frozen-lockfile || {
+  dsh_run_step "Installing checkout dependencies" "$pnpm_bin" --dir "$repo" install --frozen-lockfile || {
     dsh_die "checkout dependency installation failed: $repo"
     return 1
   }
-  "$pnpm_bin" --dir "$repo" run build || {
+  dsh_run_step "Building checkout artifacts" "$pnpm_bin" --dir "$repo" run build || {
     dsh_die "checkout build failed: $repo"
     return 1
   }
@@ -99,7 +153,7 @@ let s=""; process.stdin.on("data", d => s += d).on("end", () => {
 
 # Prove that the proxy denies an unowned identity and admits its configured owner.
 dsh_probe_identity_proxy() {
-  local proxy="$1" magicdns="$2" owner="$3" denied allowed
+  local proxy="$1" magicdns="$2" owner="$3" deadline="${4:-$SECONDS}" denied allowed
   local probe=(
     -sS --max-time 5 -o /dev/null -w '%{http_code}' -X POST
     "$proxy/api/settings.describe"
@@ -108,16 +162,19 @@ dsh_probe_identity_proxy() {
     -H 'content-type: application/json'
     --data '{}'
   )
-  denied="$(curl "${probe[@]}" -H 'Tailscale-User-Login: unauthorized@example.invalid')" || {
-    dsh_die "Tailscale identity proxy self-check request failed for the unauthorized identity"
-    return 1
-  }
-  allowed="$(curl "${probe[@]}" -H "Tailscale-User-Login: $owner")" || {
-    dsh_die "Tailscale identity proxy self-check request failed for $owner"
-    return 1
-  }
-  [ "$denied" = 403 ] && [ "$allowed" = 200 ] || {
-    dsh_die "Tailscale identity proxy self-check failed (denied=$denied allowed=$allowed)"
-    return 1
-  }
+  while :; do
+    denied="$(curl "${probe[@]}" -H 'Tailscale-User-Login: unauthorized@example.invalid')" || {
+      dsh_die "Tailscale identity proxy self-check request failed for the unauthorized identity"
+      return 1
+    }
+    allowed="$(curl "${probe[@]}" -H "Tailscale-User-Login: $owner")" || {
+      dsh_die "Tailscale identity proxy self-check request failed for $owner"
+      return 1
+    }
+    [ "$denied" = 403 ] && [ "$allowed" = 200 ] && return 0
+    [ "$denied" = 403 ] && [ "$allowed" = 404 ] && (( SECONDS < deadline )) || break
+    sleep 1
+  done
+  dsh_die "Tailscale identity proxy self-check failed (denied=$denied allowed=$allowed)"
+  return 1
 }

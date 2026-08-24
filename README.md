@@ -12,6 +12,18 @@ DeepSeek Harness is currently in _developer preview_ and is iterating rapidly. *
 
 ## Run
 
+### Preferred: install the native service (`start.sh`)
+
+For a Linux repository checkout, the preferred way to run DeepSeek Harness is:
+
+```sh
+git clone https://github.com/deepseek-ai/deepseek-harness.git
+cd deepseek-harness
+./start.sh
+```
+
+[start.sh](start.sh) installs dependencies, builds the checkout, and installs or updates a reboot-persistent non-root systemd service with direct access to the host user's tools and files. See [native service deployment](deployment/README.md).
+
 ### Run from `npm`
 
 Install `Node.js`, then run:
@@ -35,10 +47,6 @@ pnpm dsh web
 ```
 
 `pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
-
-### Install the Web UI as a native service (`start.sh`)
-
-For unrestricted access to the host user's tools and files, [start.sh](start.sh) installs a reboot-persistent non-root systemd service behind the same Tailscale identity proxy. See [deployment/README.md](deployment/README.md).
 
 ### Run the Web UI in Docker (`run-docker.sh`)
 

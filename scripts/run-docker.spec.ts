@@ -57,8 +57,12 @@ describe('Docker Harness entrypoint', () => {
   it('packages the Docker client used with the mounted host engine', () => {
     const source = readFileSync(dockerfile, 'utf8')
     expect(source).toContain('FROM docker:28-cli AS docker-cli')
-    expect(source).toContain('COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker')
-    expect(source).toContain('COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins')
+    expect(source).toContain(
+      'COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker',
+    )
+    expect(source).toContain(
+      'COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins /usr/local/libexec/docker/cli-plugins',
+    )
   })
 
   it.runIf(process.platform === 'linux')(
@@ -70,7 +74,10 @@ describe('Docker Harness entrypoint', () => {
       const calls = join(root, 'calls.log')
       mkdirSync(bin)
       mkdirSync(checkout)
-      writeFileSync(join(checkout, 'package.json'), '{"scripts":{"dsh":"true"}}\n')
+      writeFileSync(
+        join(checkout, 'package.json'),
+        '{"scripts":{"dsh":"true"}}\n',
+      )
       executable(join(bin, 'setpriv'), 'printf "%s\\n" "$*" > "$CALLS"')
       executable(join(bin, 'chown'), ':')
 
@@ -282,7 +289,10 @@ esac`,
       mkdirSync(bin)
       mkdirSync(join(checkout, 'packages/client'), { recursive: true })
       mkdirSync(join(home, 'git'))
-      writeFileSync(join(checkout, 'package.json'), '{"scripts":{"dsh":"true"}}\n')
+      writeFileSync(
+        join(checkout, 'package.json'),
+        '{"scripts":{"dsh":"true"}}\n',
+      )
       writeFileSync(join(checkout, 'pnpm-lock.yaml'), 'lockfileVersion: 9.0\n')
       execFileSync('git', ['init', '--quiet', checkout])
       executable(
@@ -318,6 +328,7 @@ esac`,
   *owner@example.test*) printf 200 ;;
 esac`,
       )
+      executable(join(bin, 'systemctl'), 'exit 3')
       const server = createServer()
       await new Promise<void>((resolveListen, reject) => {
         server.once('error', reject)
@@ -342,14 +353,16 @@ esac`,
             PATH: `${bin}:${process.env.PATH ?? ''}`,
           },
         })
-        expect(result.status).toBe(0)
+        expect(result.status, result.stderr).toBe(0)
         const override = readFileSync(overrideCapture, 'utf8')
         expect(override).toContain(`${socket}:/var/run/docker.sock`)
         expect(override).toContain('DOCKER_HOST=unix:///var/run/docker.sock')
         expect(override).toMatch(/DSH_DOCKER_GID=\d+/)
       } finally {
         await new Promise<void>((resolveClose) => {
-          server.close(() => { resolveClose() })
+          server.close(() => {
+            resolveClose()
+          })
         })
       }
     },

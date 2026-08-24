@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -47,7 +48,7 @@ function createRuntimeFixture(): RuntimeFixture {
   )
   executable(
     join(bin, 'caddy'),
-    'printf "caddy start\\n" >> "$CALLS"\n[ "${CADDY_EXIT:-0}" = 0 ] || exit 7\ntrap \'printf "caddy TERM\\n" >> "$CALLS"; exit 0\' TERM INT\nwhile :; do sleep 1; done',
+    'printf "caddy start\\n" >> "$CALLS"\n[ -z "${NOTIFY_SOCKET:-}" ] || printf "caddy inherited notify\\n" >> "$CALLS"\n[ "${CADDY_EXIT:-0}" = 0 ] || exit 7\ntrap \'printf "caddy TERM\\n" >> "$CALLS"; exit 0\' TERM INT\nwhile :; do sleep 1; done',
   )
   executable(
     join(bin, 'tailscale'),
@@ -61,7 +62,14 @@ esac`,
     join(bin, 'curl'),
     `case "$*" in
   *unauthorized@example.invalid*) printf 403 ;;
-  *owner@example.test*) printf '%s' "\${OWNER_STATUS:-200}" ;;
+  *owner@example.test*)
+    if [ "\${OWNER_404_ONCE:-0}" = 1 ] && [ ! -e "$CALLS.owner-404" ]; then
+      : > "$CALLS.owner-404"
+      printf 404
+    else
+      printf '%s' "\${OWNER_STATUS:-200}"
+    fi
+    ;;
   *) exit 0 ;;
 esac`,
   )
@@ -108,7 +116,7 @@ function spawnRuntime(
 }
 
 async function waitForLog(path: string, expected: string): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt++) {
+  for (let attempt = 0; attempt < 500; attempt++) {
     let content = ''
     try {
       content = readFileSync(path, 'utf8')
@@ -181,7 +189,7 @@ esac`,
   )
   executable(
     join(bin, 'pnpm'),
-    'if [ "$*" = --version ]; then echo 11.7.0; else printf "pnpm %s\\n" "$*" >> "$CALLS"; fi\ncase "${PNPM_FAILURE:-}:$*" in build:*" run build") exit 9 ;; esac',
+    '[ -z "${PNPM_EXPECT_NODE:-}" ] || [ "$(command -v node)" = "$PNPM_EXPECT_NODE" ] || { printf "wrong pnpm Node: %s\\n" "$(command -v node)" >&2; exit 92; }\nif [ "$*" = --version ]; then echo 11.7.0; else printf "pnpm %s\\n" "$*" >> "$CALLS"; printf "pnpm verbose output: %s\\n" "$*"; fi\ncase "${PNPM_FAILURE:-}:$*" in build:*" run build") exit 9 ;; esac',
   )
   executable(join(bin, 'caddy'), '[ "${1:-}" = version ] && echo v2.10.0 || :')
   executable(join(bin, 'chown'), ':')
@@ -201,13 +209,12 @@ esac`,
   "ps -q --filter label=com.docker.compose.project")
     [ "\${OWNED_DOCKER:-0}" = 1 ] && printf 'dsh-id\\nauth-proxy-id\\n'
     ;;
-  *'.Mounts'*) [ -z "\${MISSING_BIND:-}" ] || printf '%s\\n' "$MISSING_BIND" ;;
   *com.docker.compose.service*)
     [ "$4" = dsh-id ] && printf dsh || printf auth-proxy
     ;;
   *com.docker.compose.project.working_dir*) printf '%s' "\${DOCKER_REPO:-$REPOSITORY}" ;;
-  *com.docker.compose.project.config_files*) printf '%s,%s' "$REPOSITORY/docker/docker-compose.yml" /tmp/docker-compose.host.yml ;;
-  stop*|start*|rm*) printf "docker %s\\n" "$*" >> "$CALLS" ;;
+  *com.docker.compose.project.config_files*) printf '%s' "$REPOSITORY/docker/docker-compose.yml" ;;
+  rm*) printf "docker %s\\n" "$*" >> "$CALLS" ;;
 esac`,
   )
   executable(
@@ -276,6 +283,63 @@ function runInstaller(
 ) {
   return runLifecycle(fixture, 'install', extraEnv)
 }
+
+describe('deployment command progress', () => {
+  it.runIf(process.platform === 'linux')(
+    'terminates command process groups in concise and verbose modes',
+    async () => {
+      for (const verbose of ['', '1']) {
+        const root = mkdtempSync(join(tmpdir(), 'dsh-deployment-step-'))
+        const calls = join(root, 'calls.log')
+        const command = join(root, 'long-step')
+        const grandchild = join(root, 'grandchild.pid')
+        executable(
+          command,
+          'trap \'printf "child TERM\\n" >> "$CALLS"; exit 0\' TERM\nsleep 30 &\nprintf "%s\\n" "$!" > "$GRANDCHILD"\nprintf "child ready\\n" >> "$CALLS"\nwait',
+        )
+        const child = spawn(
+          '/bin/bash',
+          ['-c', 'source "$COMMON"; dsh_run_step "Long step" "$COMMAND"'],
+          {
+            env: {
+              ...process.env,
+              CALLS: calls,
+              COMMAND: command,
+              COMMON: join(repository, 'scripts/deployment/common.sh'),
+              DSH_VERBOSE: verbose,
+              GRANDCHILD: grandchild,
+            },
+            stdio: ['ignore', 'pipe', 'pipe'],
+          },
+        )
+        try {
+          await waitForLog(calls, 'child ready')
+          const exited = waitForExit(child)
+          child.kill('SIGTERM')
+          await expect(exited).resolves.toMatchObject({ code: 143 })
+          await waitForLog(calls, 'child TERM')
+          const grandchildPid = Number(readFileSync(grandchild, 'utf8'))
+          let running = true
+          for (let attempt = 0; attempt < 100; attempt++) {
+            try {
+              process.kill(grandchildPid, 0)
+            } catch {
+              running = false
+              break
+            }
+            await new Promise(resolveWait => setTimeout(resolveWait, 10))
+          }
+          expect(
+            running,
+            `verbose=${verbose || '0'} left grandchild ${grandchildPid}`,
+          ).toBe(false)
+        } finally {
+          if (child.exitCode === null) child.kill('SIGKILL')
+        }
+      }
+    },
+  )
+})
 
 describe('native Harness service installation', () => {
   it.runIf(process.platform === 'linux')(
@@ -483,9 +547,29 @@ describe('native Harness service installation', () => {
       const result = runInstaller(fixture, {
         LOGIN_PATH: `${fixture.bin}:${process.env.PATH ?? ''}`,
         PATH: `${rootBin}:${fixture.bin}:/usr/bin:/bin:/usr/sbin:/sbin`,
+        PNPM_EXPECT_NODE: process.execPath,
       })
 
       expect(result.status, result.stderr).toBe(0)
+      const unit = readFileSync(
+        join(fixture.systemRoot, 'etc/systemd/system/deepseek-harness.service'),
+        'utf8',
+      )
+      expect(unit).toContain(
+        `Environment="DSH_PNPM_BIN=${join(fixture.bin, 'pnpm')}"`,
+      )
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'streams checkout command output in verbose mode',
+    () => {
+      const fixture = createInstallFixture()
+
+      const result = runInstaller(fixture, { DSH_VERBOSE: '1' })
+
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.stdout).toContain('pnpm verbose output')
     },
   )
 
@@ -516,6 +600,8 @@ describe('native Harness service installation', () => {
       const fixture = createInstallFixture()
       const result = runInstaller(fixture)
       expect(result.status, result.stderr).toBe(0)
+      expect(result.stdout).not.toContain('pnpm verbose output')
+      expect(result.stdout).toContain('Building checkout artifacts done (')
       const log = readFileSync(fixture.calls, 'utf8').trim().split('\n')
       const installDependencies = log.findIndex(
         line =>
@@ -634,47 +720,11 @@ describe('native Harness service installation', () => {
       writeFileSync(fixture.calls, '')
       const result = runInstaller(fixture, { PNPM_FAILURE: 'build' })
       expect(result.status).not.toBe(0)
+      expect(result.stdout).toContain('Building checkout artifacts failed (')
+      expect(result.stderr).toContain('pnpm verbose output')
       const calls = readFileSync(fixture.calls, 'utf8')
       expect(calls).toContain('systemctl stop deepseek-harness.service')
       expect(calls).toContain('systemctl start deepseek-harness.service')
-      expect(calls).not.toContain(
-        'systemctl enable --now deepseek-harness.service',
-      )
-    },
-  )
-
-  it.runIf(process.platform === 'linux')(
-    'replaces only an owned Docker Harness after native readiness',
-    () => {
-      const fixture = createInstallFixture()
-      const result = runInstaller(fixture, { OWNED_DOCKER: '1' })
-      expect(result.status).toBe(0)
-      const calls = readFileSync(fixture.calls, 'utf8').trim().split('\n')
-      const stop = calls.indexOf('docker stop dsh-id auth-proxy-id')
-      const ready = calls.indexOf(
-        'systemctl enable --now deepseek-harness.service',
-      )
-      const remove = calls.indexOf('docker rm dsh-id auth-proxy-id')
-      expect(stop).toBeGreaterThan(-1)
-      expect(stop).toBeLessThan(ready)
-      expect(ready).toBeLessThan(remove)
-    },
-  )
-
-  it.runIf(process.platform === 'linux')(
-    'refuses Docker containers whose checkout ownership differs',
-    () => {
-      const fixture = createInstallFixture()
-      const result = runInstaller(fixture, {
-        DOCKER_REPO: '/other/checkout',
-        OWNED_DOCKER: '1',
-      })
-      expect(result.status).not.toBe(0)
-      expect(result.stderr).toContain(
-        'running Docker Harness labels do not belong to this checkout',
-      )
-      const calls = readFileSync(fixture.calls, 'utf8')
-      expect(calls).not.toContain('docker stop')
       expect(calls).not.toContain(
         'systemctl enable --now deepseek-harness.service',
       )
@@ -703,42 +753,6 @@ describe('native Harness service installation', () => {
         ),
       ).toThrow()
       expect(runInstaller(fixture).status).toBe(0)
-    },
-  )
-
-  it.runIf(process.platform === 'linux')(
-    'refuses migration when Docker rollback bind sources are missing',
-    () => {
-      const fixture = createInstallFixture()
-      const missing = join(fixture.root, 'missing-caddyfile')
-      const result = runInstaller(fixture, {
-        MISSING_BIND: missing,
-        OWNED_DOCKER: '1',
-      })
-      expect(result.status).not.toBe(0)
-      expect(result.stderr).toContain(
-        `Docker rollback source is missing: ${missing}`,
-      )
-      expect(readFileSync(fixture.calls, 'utf8')).not.toContain('docker stop')
-    },
-  )
-
-  it.runIf(process.platform === 'linux')(
-    'restores exact Docker containers after native readiness fails',
-    () => {
-      const fixture = createInstallFixture()
-      const result = runInstaller(fixture, {
-        FAIL_NATIVE: '1',
-        OWNED_DOCKER: '1',
-      })
-      expect(result.status).not.toBe(0)
-      expect(result.stderr).toContain(
-        'native service failed; restored Docker Harness',
-      )
-      const calls = readFileSync(fixture.calls, 'utf8')
-      expect(calls).toContain('docker stop dsh-id auth-proxy-id')
-      expect(calls).toContain('docker start dsh-id auth-proxy-id')
-      expect(calls).not.toContain('docker rm dsh-id auth-proxy-id')
     },
   )
 
@@ -793,9 +807,65 @@ describe('native Harness service installation', () => {
       expect(result.stderr).toContain(
         'Tailscale operator is already other-user; refusing to replace it with node',
       )
-      expect(readFileSync(fixture.calls, 'utf8')).not.toContain(
+      const calls = readFileSync(fixture.calls, 'utf8')
+      expect(calls).not.toContain(
         'systemctl enable --now deepseek-harness.service',
       )
+      expect(calls).not.toContain('docker ')
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'removes an exactly owned Docker deployment during native takeover',
+    () => {
+      const fixture = createInstallFixture()
+
+      const result = runInstaller(fixture, {
+        DOCKER_REPO: join(repository, 'docker'),
+        OWNED_DOCKER: '1',
+      })
+
+      expect(result.status, result.stderr).toBe(0)
+      const calls = readFileSync(fixture.calls, 'utf8')
+      expect(calls).toContain('docker rm -f dsh-id auth-proxy-id')
+      expect(calls.indexOf('docker rm -f')).toBeLessThan(
+        calls.indexOf('systemctl enable --now deepseek-harness.service'),
+      )
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'does not recreate removed Docker containers when native readiness fails',
+    () => {
+      const fixture = createInstallFixture()
+
+      const result = runInstaller(fixture, {
+        FAIL_NATIVE: '1',
+        OWNED_DOCKER: '1',
+      })
+
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain(
+        'rerun install after resolving the reported failure',
+      )
+      const calls = readFileSync(fixture.calls, 'utf8')
+      expect(calls).toContain('docker rm -f dsh-id auth-proxy-id')
+      expect(calls).not.toContain('docker start')
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'preserves Docker deployments owned by another checkout',
+    () => {
+      const fixture = createInstallFixture()
+
+      const result = runInstaller(fixture, {
+        DOCKER_REPO: join(fixture.root, 'other-checkout'),
+        OWNED_DOCKER: '1',
+      })
+
+      expect(result.status, result.stderr).toBe(0)
+      expect(readFileSync(fixture.calls, 'utf8')).not.toContain('docker rm')
     },
   )
 
@@ -1027,6 +1097,54 @@ describe('native Harness runtime', () => {
         )
         expect(log).toContain('backend TERM')
         expect(log).toContain('caddy TERM')
+        expect(log).not.toContain('caddy inherited notify')
+      } finally {
+        if (child.exitCode === null) child.kill('SIGKILL')
+      }
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'retries owner authorization while API routes finish mounting',
+    async () => {
+      const fixture = createRuntimeFixture()
+      const child = spawnRuntime(fixture, { OWNER_404_ONCE: '1' })
+      try {
+        await waitForLog(fixture.calls, 'notify --ready')
+        child.kill('SIGTERM')
+        await waitForExit(child)
+      } finally {
+        if (child.exitCode === null) child.kill('SIGKILL')
+      }
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'starts the backend from a non-executable runtime launcher',
+    async () => {
+      const fixture = createRuntimeFixture()
+      const child = spawnRuntime(fixture)
+      try {
+        await waitForLog(fixture.calls, 'backend start')
+        child.kill('SIGTERM')
+        await waitForExit(child)
+      } finally {
+        if (child.exitCode === null) child.kill('SIGKILL')
+      }
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'starts the backend with pnpm outside the systemd PATH',
+    async () => {
+      const fixture = createRuntimeFixture()
+      const pnpm = join(fixture.root, 'pnpm')
+      renameSync(join(fixture.bin, 'pnpm'), pnpm)
+      const child = spawnRuntime(fixture, { DSH_PNPM_BIN: pnpm })
+      try {
+        await waitForLog(fixture.calls, 'backend start')
+        child.kill('SIGTERM')
+        await waitForExit(child)
       } finally {
         if (child.exitCode === null) child.kill('SIGKILL')
       }

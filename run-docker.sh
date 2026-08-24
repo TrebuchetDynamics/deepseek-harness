@@ -333,7 +333,7 @@ if [ -z "$proxy_ready" ]; then
   diagnose_stack
   die "proxy did not start at $proxy within ${DSH_STARTUP_TIMEOUT}s"
 fi
-if ! proxy_check="$(dsh_probe_identity_proxy "$proxy" "$magicdns" "$TAILSCALE_OWNER" 2>&1)"; then
+if ! proxy_check="$(dsh_probe_identity_proxy "$proxy" "$magicdns" "$TAILSCALE_OWNER" "$((SECONDS + DSH_STARTUP_TIMEOUT))" 2>&1)"; then
   diagnose_stack
   printf '%s\n' "$proxy_check" >&2
   exit 1

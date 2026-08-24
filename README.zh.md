@@ -14,6 +14,18 @@ DeepSeek Harness 目前处于 _开发者预览_ 阶段，正在快速迭代。**
 
 ## 运行
 
+### 首选方式：安装原生服务（`start.sh`）
+
+对于 Linux 仓库检出，首选以下方式运行 DeepSeek Harness：
+
+```sh
+git clone https://github.com/deepseek-ai/deepseek-harness.git
+cd deepseek-harness
+./start.sh
+```
+
+[start.sh](start.sh) 会安装依赖、构建检出，并安装或更新一个重启后持续运行的非 root systemd 服务，使其可直接访问宿主用户的工具与文件。详见[原生服务部署](deployment/README.zh.md)。
+
 ### 通过 `npm` 运行
 
 安装 `Node.js`，然后运行：
@@ -39,10 +51,6 @@ pnpm dsh web
 ```
 
 `pnpm run build` 会准备仓库产物。`pnpm dsh web` 会直接使用这些已构建产物，不会重新构建。
-
-### 将 Web UI 安装为原生服务（`start.sh`）
-
-如需不受限制地访问宿主用户的工具与文件，[start.sh](start.sh) 会安装一个重启后持续运行的非 root systemd 服务，并使用相同的 Tailscale 身份代理。详见 [deployment/README.zh.md](deployment/README.zh.md)。
 
 ### 通过 Docker 运行 Web UI（`run-docker.sh`）
 

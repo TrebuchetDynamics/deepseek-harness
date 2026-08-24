@@ -36,9 +36,9 @@ Run the launcher as the non-root user who will own the Harness process:
 ./start.sh
 ```
 
-The launcher uses `sudo` only for missing Caddy package installation, systemd, root-owned configuration, and Tailscale setup. It prints each install phase, prepares the current checkout in place through the user's login shell, retains that user's supplementary groups, builds before cutover, and waits for the systemd `Type=notify` readiness result. The root-owned launcher, proxy configuration, and verification helper live under `/usr/local/libexec/deepseek-harness`; the service still runs the checkout itself as the non-root user. After readiness, `start.sh` prints the URLs and returns to the invoking shell while the enabled service continues in the background. A non-interactive caller without cached sudo authorization fails before changing Docker, systemd, or Serve state and names the interactive command to run. An update stops an owned native service before replacing checkout artifacts and restarts the installed service if the build fails.
+The launcher uses `sudo` only for missing Caddy package installation, exact owned-Docker takeover, systemd, root-owned configuration, and Tailscale setup. It prints each install phase with a live spinner and elapsed time while hiding successful package-manager, build, and unit-verifier detail; `DSH_VERBOSE=1 ./start.sh` streams those commands for diagnosis. It prepares the current checkout in place through the user's login shell, retains that user's supplementary groups, builds before cutover, and waits for the systemd `Type=notify` readiness result. Installation stores the resolved Node.js and pnpm paths in the unit, so restarts do not depend on systemd's default PATH. The root-owned launcher, proxy configuration, and verification helper live under `/usr/local/libexec/deepseek-harness`; the service still runs the checkout itself as the non-root user. The generated backend launcher remains non-executable and runs through Bash, so systemd runtime directories mounted with `noexec` are supported. After readiness, `start.sh` prints the URLs and returns to the invoking shell while the enabled service continues in the background. A non-interactive caller without cached sudo authorization fails before changing Docker, systemd, or Serve state and names the interactive command to run. An update stops an owned native service before replacing checkout artifacts and restarts the installed service if the build fails.
 
-If the exact Docker deployment from this checkout is running, installation proves both Compose service labels, the canonical working directory, the Compose configuration label, and the current Serve target before stopping its `dsh` and `auth-proxy` container IDs. Native readiness removes those stopped containers but preserves named volumes; readiness failure restarts the same IDs and verifies the restored loopback proxy. Ambiguous labels, unrelated listeners, another Tailscale operator, and a different Serve target fail without being replaced.
+When the exact Docker deployment from this checkout is running, `start.sh` invokes the local Docker CLI after the native build and ownership checks to remove its `dsh` and `auth-proxy` containers before startup; named volumes are preserved. It neither builds nor starts Docker, does not require Docker on a native-only host, and preserves containers from other checkouts. Other listeners, Tailscale operators, and Serve routes fail without being replaced. Takeover is one-way: if native readiness later fails, rerun `start.sh` after correcting the reported error; removed containers are not recreated.
 
 The service receives the user's direct host permissions and login-shell tools rather than a curated container mount list. Membership in the `docker` group grants the agent host-root-equivalent authority through the Docker daemon; restrict tailnet access accordingly.
 
@@ -59,14 +59,14 @@ The service receives the user's direct host permissions and login-shell tools ra
 
 Installation creates `/etc/deepseek-harness.env` once and preserves it across updates and uninstall. The file must remain a root-owned, non-symlink regular file without group or world write permission.
 
-| Setting | Default | Meaning |
-|---|---|---|
-| `DSH_BACKEND_PORT` | `4081` | Loopback port for `dsh web` |
-| `DSH_PUBLIC_PORT` | `4080` | Loopback port for Caddy and the Serve target |
-| `DSH_HTTPS_PORT` | `443` | Host Tailscale Serve HTTPS port |
-| `DSH_STARTUP_TIMEOUT` | `90` | Readiness timeout in seconds |
-| `TAILSCALE_OWNER` | connected login at first install | Login allowed to use owner-only proxy routes |
-| `DSH_EXTRA_TRUSTED_HOSTS` | empty | Comma-separated additional Harness trusted hosts |
+| Setting                   | Default                          | Meaning                                          |
+| ------------------------- | -------------------------------- | ------------------------------------------------ |
+| `DSH_BACKEND_PORT`        | `4081`                           | Loopback port for `dsh web`                      |
+| `DSH_PUBLIC_PORT`         | `4080`                           | Loopback port for Caddy and the Serve target     |
+| `DSH_HTTPS_PORT`          | `443`                            | Host Tailscale Serve HTTPS port                  |
+| `DSH_STARTUP_TIMEOUT`     | `90`                             | Readiness timeout in seconds                     |
+| `TAILSCALE_OWNER`         | connected login at first install | Login allowed to use owner-only proxy routes     |
+| `DSH_EXTRA_TRUSTED_HOSTS` | empty                            | Comma-separated additional Harness trusted hosts |
 
 Edit the file with root privileges and keep every key exactly once. Apply port changes with `./start.sh` so deployment state and Serve ownership advance together; apply other changes with `./start.sh restart`. Ports must be distinct where required and lie between 1 and 65535; the startup timeout must be between 1 and 3600 seconds. The configured owner must match the connected host-node login.
 
