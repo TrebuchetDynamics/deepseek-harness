@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-模型侧 `ask_user_question` 工具，基于 `ctx.userQuestions` 实现。当模型需要确认、选择结果或缺失的信息才能继续时，它可以借此向用户提出简明问题。
+模型侧 `ask_user_question` 工具，基于 `ctx.userQuestions` 实现。其 schema 将阻塞等待限制在用户拥有的选择或缺失信息上：存在安全且可逆的默认项时，模型应说明假设并继续，而不应为状态更新或可选确认而提问。
 
 ## 工具
 
@@ -27,7 +27,7 @@
 
 #### 模型看到的内容
 
-模型会看到生成的 [`ask_user_question` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-ask-user)，其中包含问题 id、提示语、标题、选项和多选标志。
+模型会看到生成的 [`ask_user_question` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-ask-user)，其中包含阻塞使用规则，以及问题 id、提示语、标题、选项和多选标志。
 
 #### Token 影响
 

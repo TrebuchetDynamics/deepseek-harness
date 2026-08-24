@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Model-facing `ask_user_question` tool over `ctx.userQuestions`. It lets the model ask the human a concise question when it needs confirmation, a choice, or missing information before continuing.
+Model-facing `ask_user_question` tool over `ctx.userQuestions`. Its schema reserves the blocking wait for a human-owned choice or missing information: when a safe, reversible default exists, the model should state the assumption and continue instead, and it should not ask for status updates or optional confirmation.
 
 ## Tool
 
@@ -27,7 +27,7 @@ This is the Consumer package for the user-questions seam. It does not render UI 
 
 #### What the model sees
 
-The model sees the generated [`ask_user_question` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ask-user), including question ids, prompts, headings, options, and multi-select flags.
+The model sees the generated [`ask_user_question` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ask-user), including the blocking-use guidance plus question ids, prompts, headings, options, and multi-select flags.
 
 #### Token effect
 

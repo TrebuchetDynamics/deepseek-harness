@@ -13,8 +13,10 @@ import '@deepseek-ai/dsh-user-questions'
 export const name = 'tool-ask-user'
 export const inject = ['tools', 'userQuestions']
 
-const description = 'Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. '
-  + 'Send one or more questions, each with a stable id that will be echoed in the answer.'
+const description = 'Ask the user only when continuing requires a human-owned choice or missing information. '
+  + 'If a safe, reversible default exists, state the assumption and continue instead. '
+  + 'The call waits for an answer or cancellation, so do not use it for status updates or optional confirmation. '
+  + 'Send one or more concise questions, each with a stable id that will be echoed in the answer.'
 
 export function apply(ctx: Context): void {
   ctx.tools.register(defineTool({

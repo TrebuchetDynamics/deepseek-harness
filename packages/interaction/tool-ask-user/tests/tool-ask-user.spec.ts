@@ -50,6 +50,10 @@ describe('ask_user_question tool', () => {
 
     expect(schema).toMatchObject({
       name: 'ask_user_question',
+      description: 'Ask the user only when continuing requires a human-owned choice or missing information. '
+        + 'If a safe, reversible default exists, state the assumption and continue instead. '
+        + 'The call waits for an answer or cancellation, so do not use it for status updates or optional confirmation. '
+        + 'Send one or more concise questions, each with a stable id that will be echoed in the answer.',
       parameters: {
         type: 'object',
         properties: {

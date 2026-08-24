@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
@@ -18,9 +18,17 @@ async function harness(): Promise<{ ctx: Context; api: ApiProxy }> {
   }
 }
 
-function agent(ctx: Context): Agent {
+function agent(ctx: Context, overrides: Record<string, unknown> = {}): Agent {
   const session = ctx.sessions.create()
-  const value = { id: session.id, session, status: 'idle', ctx } as Agent
+  const value = {
+    id: session.id,
+    session,
+    status: 'idle',
+    ctx,
+    steer: vi.fn(),
+    followup: vi.fn(),
+    ...overrides,
+  } as unknown as Agent
   ctx.agents.register(value)
   return value
 }
@@ -114,6 +122,84 @@ describe('question response validation', () => {
       .toEqual({ accepted: true })
     await expect(asked).resolves.toEqual({
       answers: [{ id: 'target', selected: [], custom: 'Release notes' }],
+    })
+    abort.abort()
+  })
+
+  it('lets an ordinary prompt supersede a pending question instead of deadlocking behind it', async () => {
+    const { ctx, api } = await harness()
+    const abort = new AbortController()
+    const mux = openMux(api, abort)
+    const steer = vi.fn()
+    const askingAgent = agent(ctx, { status: 'running', steer })
+    const asked = ctx.userQuestions.ask({
+      agent: askingAgent,
+      questions: [{
+        id: 'acceptance',
+        question: 'Approve the design?',
+        options: [{ label: 'Approve' }, { label: 'Revise' }],
+      }],
+    })
+    const rejected = expect(asked).rejects.toMatchObject({ code: 'ASK_CANCELLED' })
+    const envelope = await mux.waitForQuestion()
+
+    const response = await api.sessions.prompt({
+      rpcId: RpcId('superseding-prompt'),
+      payload: {
+        sessionId: askingAgent.id,
+        mode: 'steer',
+        content: [{ type: 'text', text: 'Yes' }],
+      },
+    })
+
+    expect(response.result).toEqual({ ok: true, value: { accepted: true } })
+    expect(steer).toHaveBeenCalledOnce()
+    await rejected
+    expect(mux.envelopes).toContainEqual(expect.objectContaining({
+      payload: {
+        type: 'question/resolved',
+        sessionId: askingAgent.id,
+        questionRpcId: envelope.rpcId,
+        outcome: 'cancelled',
+      },
+    }))
+    expect(await api.respond(answer(envelope, ['Approve'])))
+      .toEqual({ accepted: false, reason: 'not-pending' })
+    abort.abort()
+  })
+
+  it('keeps a pending question answerable when the replacement prompt is rejected', async () => {
+    const { ctx, api } = await harness()
+    const abort = new AbortController()
+    const mux = openMux(api, abort)
+    const askingAgent = agent(ctx, {
+      status: 'running',
+      steer: vi.fn(() => { throw new Error('inbox unavailable') }),
+    })
+    const asked = ctx.userQuestions.ask({
+      agent: askingAgent,
+      questions: [{
+        id: 'target',
+        question: 'Choose a deployment target',
+        options: [{ label: 'Staging' }, { label: 'Production' }],
+      }],
+    })
+    const envelope = await mux.waitForQuestion()
+
+    const response = await api.sessions.prompt({
+      rpcId: RpcId('rejected-replacement'),
+      payload: {
+        sessionId: askingAgent.id,
+        mode: 'steer',
+        content: [{ type: 'text', text: 'Use staging' }],
+      },
+    })
+
+    expect(response.result).toMatchObject({ ok: false, error: { code: 'agent-busy' } })
+    expect(await api.respond(answer(envelope, ['Staging'])))
+      .toEqual({ accepted: true })
+    await expect(asked).resolves.toEqual({
+      answers: [{ id: 'target', selected: ['Staging'] }],
     })
     abort.abort()
   })

@@ -64,6 +64,8 @@ Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.cr
 
 `AbstractApiClient` 持有全部协议不变量：签发 rpcId、包装／解包信封、Zod 解析、SSE 帧解码、一元请求超时，以及按微任务批处理的信封观测（`subscribeEnvelopes`）；平台子类只提供 `doFetch` 传输环节。`InProcessApiClient` 以 `toFetchHandler(api)` 为基础，仍是同构接点：它运行完整的协议序列化与校验路径而不经过网络，供需要该路径的调用方和载体测试使用。产品的 `dsh --profile headless` 是直连 core 的入口，不挂载本包。
 
+一次被接受的 `session.prompt` 会取代该 Session 中所有等待中的 `ask_user_question`。Host 先把普通提示词接纳进 Agent 收件箱，再取消等待中的问题；被拒绝的提示词不会让问题失去应答能力，而已接受的 steering 或 follow-up 消息也不会永远堵在它必须取代的工具调用之后。
+
 ## 模型体验
 
 无。该包定义客户端与宿主间的 wire 约定和载体，其中没有任何内容会进入模型请求。

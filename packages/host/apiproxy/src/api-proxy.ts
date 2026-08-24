@@ -1307,6 +1307,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     })
   }
 
+  /** Settle questions superseded by an accepted ordinary prompt for the same session. */
+  function supersedePendingQuestions(sessionId: SessionId): void {
+    for (const pending of [...pendingQuestions.values()]) {
+      if (pending.sessionId !== sessionId) continue
+      claimQuestion(pending, 'cancelled')
+      pending.reject(new UserQuestionError(
+        'the user sent a new prompt instead of answering ask_user_question', 'ASK_CANCELLED'))
+    }
+  }
+
   const disposeProvider = ctx.userQuestions.registerProvider({
     ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
       const sessionId = request.agent?.id
@@ -2397,6 +2407,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             const message: UserMessage = createUserMessage({ content: durable, source })
             if (mode === 'steer') agent.steer(message)
             else agent.followup(message)
+            supersedePendingQuestions(sessionId)
           } catch (error: unknown) {
             if (error instanceof AttachmentError) {
               return err(request, {

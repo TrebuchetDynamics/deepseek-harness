@@ -14,6 +14,8 @@ Separately, the composer visuals had drifted from the current design: an expand-
 
 A pending question owns exactly two surfaces: the composer takeover collects the answers, and a dedicated `ask_user_question` toolview row in the transcript names the interaction outcome. The row registers into the keyed `tool.call.toolview` hole exactly like `todo_write` and composes the shared `ToolRow` (chrome, running sweep, leading expansion). Its summary is the interaction verdict rather than args: `waiting` while running, `N/M answered` from the result JSON once settled (a skipped answer — empty `selected`, no `custom` — stays out of the count), `cancelled` for `ASK_CANCELLED`, and `interrupted` with the shared amber stopped semantics for `ASK_ABORTED`. Malformed or truncated results fall back to the generic summary. `PendingCard` narrowed to `PendingWait<'approval'>` and `ChatView` filtered the pending list to approval waits, leaving the placeholder card to approvals alone; the approval composer takeover ([web permission and approval](2026-07-23-web-permission-and-approval.md)) has since removed it entirely.
 
+An accepted ordinary `session.prompt` means the user chose to speak instead of answering the structured question. The Host admits that message to the Agent inbox before claiming every pending question for the same Session as `ASK_CANCELLED`; failed prompt admission leaves the questions answerable, and the first structured response or superseding prompt to claim a question wins. The tool schema reserves this blocking wait for human-owned choices and missing information; it tells the model to use a safe, reversible default instead of asking for optional confirmation or a status update.
+
 The composer redesign moves paging into the footer next to the actions, renders multi-select options with explicit checkboxes, keeps single-select numbered rows, and replaces the expand-to-open custom entry with an always-visible custom input row (textarea for optionless questions). The `parseQuestionTitle` multi-select suffix convention is deleted; `multi_select` is already structured metadata, so the title renders verbatim.
 
 Composer chrome copy becomes bilingual: the plugin registers zh/en dictionaries under the `question` namespace of `dsh-client-locale` and hands the entry a namespace-bound translator plus the locale snapshot as a hooks-compartment source through the slot inject face, so a locale flip re-renders a mounted composer. Validation feedback is stored as a dictionary key and re-translated on flip; carrier failure messages and all model-authored question/option text render verbatim.
@@ -23,6 +25,8 @@ Two adjacent fixes ride along. All generic toolview leading icons (and the hover
 ## Alternatives considered
 
 **Keep rendering questions through `PendingCard`.** Rejected: the card was a read-only placeholder from before the takeover existed, so a pending question showed the same content twice with one copy not answerable. The toolview row plus takeover covers both the transcript record and the collection surface.
+
+**Leave ordinary prompts queued behind a pending question.** Rejected: a client without the question composer can accept the message but cannot settle the blocking tool call, so neither the queued message nor the turn can advance.
 
 **Show the questions or answers inline in the transcript row.** Rejected: the composer takeover owns question rendering and answer collection, and the row convention (`todo_write`) is one line with details in the panel. The row therefore reports only the outcome, mirroring how the todo row reports counts while the panel owns the list.
 
@@ -36,10 +40,12 @@ Two adjacent fixes ride along. All generic toolview leading icons (and the hover
 
 `ask_user_question` and `todo_write` now demonstrate the intended toolview pattern: compose `ToolRow`, summarize from call args or result JSON with shape-checked fallbacks, and register through the keyed slot. The bespoke `todo-row.module.css` is gone.
 
+Clients that cannot render the structured composer can escape a question wait by sending an ordinary prompt. That prompt produces a cancelled tool result before the queued message reaches the next model step, so the model receives both the abandoned interaction and the user's replacement text.
+
 The row verdict strings are the one remaining hardcoded-English surface of the question flow; localizing them is deferred follow-up. The approval composer takeover shipped ([web permission and approval](2026-07-23-web-permission-and-approval.md), height-capped per the [approval-panel note](../bug-fix/2026-07-30-approval-panel-command-cap.md)), and `PendingCard` no longer exists.
 
 `ui-user-questions` gains a `dsh-client-locale` dependency and an inject face where it previously had none; its contract (`QuestionComposerInjected`) lives with the consumer in `contract/slots.ts`.
 
 ## Verification
 
-`ui-conversation` tests pin the row's waiting/answered/skipped/cancelled/interrupted/fallback matrix, the approval-only pending filter, and the slot registration; `ui-user-questions` tests pin the redesigned composer (checkbox multi-select, always-visible custom row, footer pager, dictionary-key feedback re-translation, IME-safe Enter) and the plugin's dictionary registration plus inject face; `ui-primitives` tests pin the icon set. The assembled Web GUI was exercised against a live session covering answer, cancel, and turn-interrupt paths.
+`ui-conversation` tests pin the row's waiting/answered/skipped/cancelled/interrupted/fallback matrix, the approval-only pending filter, and the slot registration; `ui-user-questions` tests pin the redesigned composer (checkbox multi-select, always-visible custom row, footer pager, dictionary-key feedback re-translation, IME-safe Enter) and the plugin's dictionary registration plus inject face; `ui-primitives` tests pin the icon set. `dsh-host-apiproxy` pins ordinary-prompt supersession through the same public question and prompt methods. The assembled Web GUI was exercised against a live session covering answer, cancel, and turn-interrupt paths.
