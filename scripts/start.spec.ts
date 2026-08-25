@@ -361,6 +361,44 @@ describe('native Harness service installation', () => {
   )
 
   it.runIf(process.platform === 'linux')(
+    'recovers an installation whose recorded checkout no longer exists',
+    () => {
+      const fixture = createInstallFixture()
+      expect(runInstaller(fixture).status).toBe(0)
+      const statePath = join(
+        fixture.systemRoot,
+        'var/lib/deepseek-harness/deployment.json',
+      )
+      const missingCheckout = join(
+        fixture.root,
+        'missing-parent',
+        'missing-checkout',
+      )
+      writeFileSync(
+        statePath,
+        readFileSync(statePath, 'utf8').replace(repository, missingCheckout),
+      )
+
+      const staleStatus = runLifecycle(fixture, 'status')
+      expect(staleStatus.status).not.toBe(0)
+      expect(staleStatus.stderr).toContain(
+        `installed service checkout no longer exists: ${missingCheckout}; run './start.sh install' from the desired checkout to recover`,
+      )
+
+      writeFileSync(fixture.calls, '')
+      const recovered = runInstaller(fixture)
+      expect(recovered.status, recovered.stderr).toBe(0)
+      expect(readFileSync(statePath, 'utf8')).toContain(
+        `"checkout": "${repository}"`,
+      )
+      const calls = readFileSync(fixture.calls, 'utf8').trim().split('\n')
+      expect(calls.findIndex(line => line.endsWith('run build'))).toBeLessThan(
+        calls.indexOf('systemctl stop deepseek-harness.service'),
+      )
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
     'installs by default when invoked without a command',
     () => {
       const fixture = createInstallFixture()

@@ -434,7 +434,7 @@ native_check_route_ownership() {
 }
 
 native_load_owned_state() {
-  local expected_repo="$1" state_output
+  local expected_repo="$1" recover_missing_checkout="${2:-0}" recorded_checkout state_output
   local -a state=()
   native_validate_external_file "$DSH_STATE_FILE" "deployment state" || return 1
   state_output="$(dsh_node -e '
@@ -456,11 +456,24 @@ for (const value of [state.checkout, state.serviceUser, String(state.httpsPort),
   }
   mapfile -t state <<<"$state_output"
   [ "${#state[@]}" -eq 4 ] || { dsh_die "deployment state is incomplete: $DSH_STATE_FILE"; return 1; }
-  DSH_STATE_CHECKOUT="$(readlink -f "${state[0]}")"
+  recorded_checkout="${state[0]}"
+  DSH_STATE_CHECKOUT_MISSING=0
+  if [ ! -e "$recorded_checkout" ]; then
+    [ "$recover_missing_checkout" = 1 ] || {
+      dsh_die "installed service checkout no longer exists: $recorded_checkout; run './start.sh install' from the desired checkout to recover"
+      return 1
+    }
+    DSH_STATE_CHECKOUT="$recorded_checkout"
+    DSH_STATE_CHECKOUT_MISSING=1
+    dsh_info "Recovering the installed service from missing checkout $recorded_checkout"
+  elif ! DSH_STATE_CHECKOUT="$(readlink -f "$recorded_checkout")"; then
+    dsh_die "cannot resolve installed service checkout: $recorded_checkout"
+    return 1
+  fi
   DSH_STATE_USER="${state[1]}"
   DSH_STATE_HTTPS_PORT="${state[2]}"
   DSH_STATE_TARGET="${state[3]}"
-  [ "$DSH_STATE_CHECKOUT" = "$(readlink -f "$expected_repo")" ] || {
+  [ "$DSH_STATE_CHECKOUT_MISSING" = 1 ] || [ "$DSH_STATE_CHECKOUT" = "$(readlink -f "$expected_repo")" ] || {
     dsh_die "installed service belongs to $DSH_STATE_CHECKOUT, not $expected_repo"
     return 1
   }
@@ -470,7 +483,7 @@ for (const value of [state.checkout, state.serviceUser, String(state.httpsPort),
       dsh_die "$DSH_UNIT_FILE does not match the recorded native installation"
       return 1
     }
-  export DSH_STATE_CHECKOUT DSH_STATE_USER DSH_STATE_HTTPS_PORT DSH_STATE_TARGET
+  export DSH_STATE_CHECKOUT DSH_STATE_CHECKOUT_MISSING DSH_STATE_USER DSH_STATE_HTTPS_PORT DSH_STATE_TARGET
 }
 
 native_validate_owned_route() {
@@ -582,6 +595,15 @@ native_install() {
     update_needs_restart=0
   }
 
+  native_stop_for_update() {
+    systemctl stop "$DSH_SERVICE_NAME" || {
+      dsh_die "failed to stop the installed native service before updating"
+      return 1
+    }
+    update_needs_restart=1
+    trap native_restart_interrupted_update EXIT
+  }
+
   user="${DSH_SERVICE_USER:-${SUDO_USER:-}}"
   [ -n "$user" ] || user="$(id -un)"
   [ "$user" != root ] || {
@@ -602,23 +624,21 @@ native_install() {
   dsh_info "Checking the $user login-shell toolchain"
   native_require_user_tools "$user" "$home" "$login_shell"
   if [ -e "$DSH_UNIT_FILE" ]; then
-    native_load_owned_state "$repo"
+    native_load_owned_state "$repo" 1
     native_validate_owned_route
     updating=1
   fi
   dsh_reject_duplicate_sidebar "$home"
-  if [ "$updating" = 1 ]; then
-    systemctl stop "$DSH_SERVICE_NAME" || {
-      dsh_die "failed to stop the installed native service before updating"
-      return 1
-    }
-    update_needs_restart=1
-    trap native_restart_interrupted_update EXIT
+  if [ "$updating" = 1 ] && [ "$DSH_STATE_CHECKOUT_MISSING" = 0 ]; then
+    native_stop_for_update || return 1
   fi
   dsh_info "Preparing the checkout as $user"
   if ! native_prepare_checkout_as_user "$user" "$home" "$login_shell" "$repo"; then
     native_restart_interrupted_update
     return 1
+  fi
+  if [ "$updating" = 1 ] && [ "$DSH_STATE_CHECKOUT_MISSING" = 1 ]; then
+    native_stop_for_update || return 1
   fi
 
   dsh_info "Validating the host Tailscale identity and operator"

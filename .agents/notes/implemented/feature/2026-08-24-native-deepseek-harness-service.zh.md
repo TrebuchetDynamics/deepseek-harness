@@ -14,7 +14,7 @@ Status: implemented
 
 Docker 与原生部署共用检出准备、profile 拒绝、Tailscale 身份解析、部署锁、身份代理探测和 `deployment/Caddyfile`。完成构建后，原生安装器只会在 Compose 标签证明两个运行中的 Harness 容器都属于当前检出时调用本地 Docker CLI。它会在检查原生端口前移除这些确切容器但保留命名 volume；其他检出的容器不受影响。纯原生宿主无需 Docker。接管有意保持单向：原生服务随后未能就绪时不会重建已移除的容器，诊断会要求操作者修正问题并重新安装。Docker 启动器会在停止组合前拒绝活动的原生 unit。
 
-root 权限仅用于依赖检查、Ubuntu 或 Fedora 软件包安装、移除确切的自有 Docker 容器、原子安装 root 属主启动器与配置文件、systemd 操作、部署状态和 Tailscale 设置。运行时配置与部署状态必须是 root 属主、非符号链接的文件，并且组与其他用户都不可写。生命周期命令在修改或删除已安装 unit 与实时 Serve 路由前，会将其与部署状态比较。已有的无关 Tailscale operator、路由、Docker 标签与回环监听器都会触发快速失败。
+root 权限仅用于依赖检查、Ubuntu 或 Fedora 软件包安装、移除确切的自有 Docker 容器、原子安装 root 属主启动器与配置文件、systemd 操作、部署状态和 Tailscale 设置。运行时配置与部署状态必须是 root 属主、非符号链接的文件，并且组与其他用户都不可写。生命周期命令在修改或删除已安装 unit 与实时 Serve 路由前，会将其与部署状态比较。当 root 属主状态与已安装 unit 识别出受管理服务，而其记录的检出已不存在时，`install` 会在停止活动服务前准备调用方检出，随后重写 unit 与状态；其他生命周期命令会报告过期检出并指引操作者执行 `install`。仍然存在的其他已记录检出继续触发快速失败，无关的 Tailscale operator、路由、Docker 标签与回环监听器同样如此。
 
 ## Alternatives considered
 
@@ -23,6 +23,8 @@ root 权限仅用于依赖检查、Ubuntu 或 Fedora 软件包安装、移除确
 **恢复拥有独立策略的宿主启动器。** 否决：重复的构建、身份、就绪与路由逻辑会重现已归档移除决策指出的维护风险。共享部署辅助函数让两种执行模式保持一致。
 
 **为 Harness、Caddy 与发布使用多个 systemd unit。** 否决：独立 unit 会让就绪、task-board 令牌所有权、失败传播与清理更复杂。单个通知型服务拥有完整运行时生命周期。
+
+**检出删除后要求手工清理 systemd。** 否决：root 属主状态与匹配 unit 已经能识别受管理安装，而手工删除会绕过其路由与所有权检查。自动接管只适用于记录检出不存在的情况，仍然存在的其他检出继续受到保护。
 
 **把已发布 npm 包安装到私有服务目录。** 否决：部署要求直接执行当前检出，使本地插件、构建与更新成为服务来源。
 
@@ -36,6 +38,6 @@ agent 获得服务用户对文件、凭据、设备、宿主服务与登录 shel
 
 ## Verification
 
-`scripts/start.spec.ts` 覆盖文档所述的零参数默认安装与 CLI 完成消息、简洁与详细命令输出、Ubuntu 与 Fedora 缺失 Caddy 安装及已有服务保留、真实 systemd unit 校验、不依赖 root PATH 的登录 shell Node 与 pnpm 解析、全新安装失败清理、端口变更拒绝、安装顺序、非 root unit 渲染、登录 shell 执行、更新停止与回滚、`Type=notify` 运行时监督、授权就绪、确切的自有 Docker 接管与无关容器保留、operator、路由、监听器、配置与 unit 所有权失败、诊断脱敏、生命周期清理，以及 Arch 依赖指引。`scripts/run-docker.spec.ts` 固定共享策略、镜像前构建、宿主 Docker 暴露与活动原生服务排除行为。Bash 语法校验覆盖两个启动器及其共享辅助脚本。Ubuntu 24.04 与 Fedora 42 容器分别安装其发行版 systemd 包，并由 `systemd-analyze verify` 接受渲染后的 unit；这只校验解析器可移植性，不代表服务启动。
+`scripts/start.spec.ts` 覆盖文档所述的零参数默认安装与 CLI 完成消息、简洁与详细命令输出、Ubuntu 与 Fedora 缺失 Caddy 安装及已有服务保留、真实 systemd unit 校验、不依赖 root PATH 的登录 shell Node 与 pnpm 解析、全新安装失败清理、缺失检出恢复及构建先于停服的顺序、端口变更拒绝、安装顺序、非 root unit 渲染、登录 shell 执行、更新停止与回滚、`Type=notify` 运行时监督、授权就绪、确切的自有 Docker 接管与无关容器保留、operator、路由、监听器、配置与 unit 所有权失败、诊断脱敏、生命周期清理，以及 Arch 依赖指引。`scripts/run-docker.spec.ts` 固定共享策略、镜像前构建、宿主 Docker 暴露与活动原生服务排除行为。Bash 语法校验覆盖两个启动器及其共享辅助脚本。Ubuntu 24.04 与 Fedora 42 容器分别安装其发行版 systemd 包，并由 `systemd-analyze verify` 接受渲染后的 unit；这只校验解析器可移植性，不代表服务启动。
 
 当前容器化开发环境中没有真实 Ubuntu、Fedora 或 Arch systemd 宿主，因此本记录不声称已完成这些人工平台 smoke。
