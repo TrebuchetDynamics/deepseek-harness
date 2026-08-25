@@ -33,6 +33,14 @@ describe('Docker Tailscale proxy', () => {
     expect(ownerMatcher).toContain('/api/dsh-ssh/*')
   })
 
+  it('preserves an absent Origin header on ordinary requests', () => {
+    const config = readFileSync(caddyfile, 'utf8')
+    const ordinaryProxy = config.slice(config.lastIndexOf('handle {'))
+    expect(ordinaryProxy).not.toContain(
+      'header_up Origin {http.request.header.Origin}',
+    )
+  })
+
   it('shares deployment identity and locking policy', () => {
     const launcherSource = readFileSync(launcher, 'utf8')
     const commonSource = readFileSync(commonDeployment, 'utf8')

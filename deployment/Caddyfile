@@ -44,7 +44,6 @@
 	handle {
 		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
 			header_up Host {http.request.host}
-			header_up Origin {http.request.header.Origin}
 			header_up -X-Dsh-Task-Board-Proxy-Token
 		}
 	}
