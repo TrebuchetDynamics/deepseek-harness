@@ -37,6 +37,12 @@ DSH_GID="${DSH_GID:-1000}"
 TAILSCALE_STATE_DIR="${TAILSCALE_STATE_DIR:-/var/lib/tailscale}"
 TAILSCALE_SOCKET="/var/run/tailscale/tailscaled.sock"
 
+# The workspace and home may not exist on a standalone (non-compose) run where
+# they are not bind-mounted; create them owned by the runtime uid so the
+# dropped-privilege agent can write to them.
+mkdir -p "$DSH_WORKSPACE" "$DSH_HOME" 2>/dev/null || true
+chown "$DSH_UID:$DSH_GID" "$DSH_WORKSPACE" "$DSH_HOME" 2>/dev/null || true
+
 DSH_ARGS=(web --port "$DSH_PORT")
 TRUSTED_HOSTS=()
 
