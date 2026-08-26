@@ -87,7 +87,6 @@ describe('QuestionComposer', () => {
     expect(scrollRegion?.contains(screen.getByText('下一题').closest('button'))).toBe(false)
     fireEvent.keyDown(screen.getByRole('radio', { name: /工程落地型/ }), { key: 'Enter' })
     expect(respond).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('radio', { name: /工程落地型/ }))
 
     expect(screen.getByText('2 / 3')).toBeTruthy()
     // detail is per-question: the second question carries none.
@@ -119,6 +118,71 @@ describe('QuestionComposer', () => {
       { id: 'signals', selected: ['系统设计', '代码质量', '产品判断'], custom: '沟通能力' },
     ]))
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '正在提交…' }).disabled).toBe(true)
+  })
+
+  it('submits an only single-choice question when its option is selected', () => {
+    const respond = vi.fn(() => Promise.resolve<RpcReceipt>({ accepted: true }))
+    const carrier = new PendingWait(
+      'question',
+      RpcId('single-choice'),
+      SID,
+      {
+        questions: [{
+          id: 'identity',
+          question: 'Choose the next identity',
+          options: [
+            { label: 'Authorize fresh R6 (Recommended)' },
+            { label: 'Stop the campaign' },
+          ],
+        }],
+      },
+      respond,
+    )
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Authorize fresh R6' }))
+
+    expect(respond).toHaveBeenCalledTimes(1)
+    expect(respond).toHaveBeenCalledWith(answeredEnvelope('single-choice', [
+      { id: 'identity', selected: ['Authorize fresh R6 (Recommended)'] },
+    ]))
+  })
+
+  it('submits the focused final choice when Enter replaces a preselected answer', () => {
+    const respond = vi.fn(() => Promise.resolve<RpcReceipt>({ accepted: true }))
+    const carrier = new PendingWait(
+      'question',
+      RpcId('keyboard-choice'),
+      SID,
+      {
+        questions: [
+          {
+            id: 'first',
+            question: 'Choose the first answer',
+            options: [{ label: 'First A' }, { label: 'First B' }],
+          },
+          {
+            id: 'final',
+            question: 'Choose the final answer',
+            options: [{ label: 'Final A' }, { label: 'Final B' }],
+          },
+        ],
+      },
+      respond,
+    )
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: '下一题' })[0] as HTMLButtonElement)
+    fireEvent.click(screen.getByRole('radio', { name: 'Final A' }))
+    expect(respond).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('radio', { name: 'First A' }))
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'Final B' }), { key: 'Enter' })
+
+    expect(respond).toHaveBeenCalledTimes(1)
+    expect(respond).toHaveBeenCalledWith(answeredEnvelope('keyboard-choice', [
+      { id: 'first', selected: ['First A'] },
+      { id: 'final', selected: ['Final B'] },
+    ]))
   })
 
   it('renders plan detail through the shared assistant Markdown primitive', () => {

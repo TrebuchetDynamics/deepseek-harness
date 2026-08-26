@@ -159,21 +159,6 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
     setError(null)
   }
 
-  const choose = (label: string): void => {
-    updateDraft((current) => {
-      if (question.multiSelect === true) {
-        const selected = current.selected.includes(label)
-          ? current.selected.filter(item => item !== label)
-          : [...current.selected, label]
-        return { ...current, selected, skipped: false }
-      }
-      return { selected: [label], custom: '', skipped: false }
-    })
-    if (question.multiSelect !== true && index < questions.length - 1) {
-      setIndex(current => current + 1)
-    }
-  }
-
   const answered = (item: DraftAnswer): boolean =>
     item.selected.length > 0 || item.custom.trim() !== ''
 
@@ -204,6 +189,27 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
       setBusy(null)
       setError({ text: cause instanceof Error ? cause.message : String(cause) })
     })
+  }
+
+  const choose = (label: string): void => {
+    const nextDrafts = drafts.map((current, itemIndex) => {
+      if (itemIndex !== index) return current
+      if (question.multiSelect === true) {
+        const selected = current.selected.includes(label)
+          ? current.selected.filter(item => item !== label)
+          : [...current.selected, label]
+        return { ...current, selected, skipped: false }
+      }
+      return { selected: [label], custom: '', skipped: false }
+    })
+    setDrafts(nextDrafts)
+    setError(null)
+    if (question.multiSelect === true) return
+    if (index < questions.length - 1) {
+      setIndex(current => current + 1)
+      return
+    }
+    submitDrafts(nextDrafts)
   }
 
   const continueFlow = (): void => {
@@ -305,9 +311,15 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
                       disabled={busy !== null}
                       onClick={() => { choose(option.label) }}
                       onKeyDown={(event) => {
-                        if (event.key !== 'Enter' || !drafts.every(completed)) return
+                        if (event.key !== 'Enter') return
+                        if (question.multiSelect === true) {
+                          if (!drafts.every(completed)) return
+                          event.preventDefault()
+                          submitDrafts(drafts)
+                          return
+                        }
                         event.preventDefault()
-                        submitDrafts(drafts)
+                        choose(option.label)
                       }}
                     >
                       {question.multiSelect === true

@@ -129,11 +129,10 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
       await compareOrRefreshGolden(MID_EXPECTED, snapshot, MODE)
     }
 
-    // Answer the composer; the tool result closes the step, the loop drains
-    // the steer as user/message, and the steered continuation runs the
-    // final model call.
+    // One choice click answers the composer; the tool result closes the step,
+    // the loop drains the steer as user/message, and the steered continuation
+    // runs the final model call.
     await composer.getByRole('radio', { name: 'Yes' }).click()
-    await composer.getByRole('radio', { name: 'Yes' }).press('Enter')
     await settled
 
     if (MODE === 'record') {
@@ -217,7 +216,6 @@ describe('web e2e: composer shortcut steers directly', () => {
     const pendingSteering = page.locator('[data-pending-steering]').filter({ hasText: STEER })
     await pendingSteering.waitFor({ timeout: 10_000 })
     await composer.getByRole('radio', { name: 'Yes' }).click()
-    await composer.getByRole('radio', { name: 'Yes' }).press('Enter')
     await settled
 
     const steerEvents = claimedMessages(sessionEvents, STEER)
@@ -283,7 +281,6 @@ describe('web e2e: composer shortcut follows the swapped busy behavior', () => {
     const composer = page.locator('[data-question-key]')
     await composer.waitFor({ timeout: 30_000 })
     await composer.getByRole('radio', { name: 'Yes' }).click()
-    await composer.getByRole('radio', { name: 'Yes' }).press('Enter')
     await settled
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
@@ -365,7 +362,6 @@ describe('web e2e: empty-draft Cmd+Enter steers the whole queue', () => {
     const composer = page.locator('[data-question-key]')
     await composer.waitFor({ timeout: 30_000 })
     await composer.getByRole('radio', { name: 'Yes' }).click()
-    await composer.getByRole('radio', { name: 'Yes' }).press('Enter')
     await settled
 
     const first = claimedMessages(sessionEvents, STEER_ONE)

@@ -16,7 +16,7 @@ Web GUI 已经可以通过 `QuestionComposer` 的输入区接管收集回答，�
 
 一次被接受的普通 `session.prompt` 表示用户选择发言，而不是回答结构化问题。Host 会先把该消息接纳进 Agent 收件箱，再把同一 Session 中所有等待中的问题判为 `ASK_CANCELLED`；提示词接纳失败时问题仍可作答，而结构化回答与取代它的提示词之间以先认领者为准。工具 schema 将这种阻塞等待保留给用户拥有的选择和缺失信息，并要求模型在存在安全且可逆的默认项时直接采用，而不是为可选确认或状态更新而提问。
 
-输入区重设计将分页移到底部操作区旁，多选选项渲染显式复选框，单选保留编号行，并用始终可见的自定义输入行取代展开式自定义入口（无选项问题用多行文本框）。删除 `parseQuestionTitle` 的多选后缀约定；`multi_select` 已是结构化元数据，标题原样渲染。
+输入区重设计将分页移到底部操作区旁，多选选项渲染显式复选框，单选保留编号行，并用始终可见的自定义输入行取代展开式自定义入口（无选项问题用多行文本框）。选择单选选项后会前进到下一题；若已是最后一题，则立即提交完整的结构化答案，不需要可能变成普通提示词的第二次操作。删除 `parseQuestionTitle` 的多选后缀约定；`multi_select` 已是结构化元数据，标题原样渲染。
 
 输入区界面文案实现双语：插件在 `dsh-client-locale` 的 `question` 命名空间下注册中英词典，并通过 slot inject face 向条目提供绑定命名空间的翻译器和作为 hooks compartment 来源的 locale 快照，语言切换时已挂载的输入区会重新渲染。校验反馈以词典 key 存储、切换时重新翻译；载体失败消息与所有模型撰写的问题/选项文本原样渲染。
 
@@ -48,4 +48,4 @@ Web GUI 已经可以通过 `QuestionComposer` 的输入区接管收集回答，�
 
 ## 验证
 
-`ui-conversation` 测试钉住行的 waiting/answered/skipped/cancelled/interrupted/回退矩阵、仅审批的待处理过滤和 slot 注册；`ui-user-questions` 测试钉住重设计的输入区（复选框多选、始终可见的自定义行、底部分页、词典 key 反馈重翻译、IME 安全的 Enter）以及插件的词典注册与 inject face；`ui-primitives` 测试钉住图标集。`dsh-host-apiproxy` 通过同一套公开问题与提示词方法钉住普通提示词取代行为。组装后的 Web GUI 在真实会话中演练了回答、取消与轮次打断路径。
+`ui-conversation` 测试钉住行的 waiting/answered/skipped/cancelled/interrupted/回退矩阵、仅审批的待处理过滤和 slot 注册；`ui-user-questions` 测试钉住重设计的输入区（复选框多选、最后一道单选的即时提交、始终可见的自定义行、底部分页、词典 key 反馈重翻译、IME 安全的 Enter）以及插件的词典注册与 inject face；`ui-primitives` 测试钉住图标集。`dsh-host-apiproxy` 通过同一套公开问题与提示词方法钉住普通提示词取代行为。组装后的 Web GUI 会演练单次操作的结构化回答、取消与轮次打断。
