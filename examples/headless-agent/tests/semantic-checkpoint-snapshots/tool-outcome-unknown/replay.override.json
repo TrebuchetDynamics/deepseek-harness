@@ -3,8 +3,8 @@
     "kind": "chunks",
     "chunks": [
       { "type": "block-start", "index": 0, "blockType": "text" },
-      { "type": "text-delta", "index": 0, "text": "I will verify the external state before deciding whether to retry the side-effecting operation." },
-      { "type": "block-end", "index": 0, "block": { "type": "text", "text": "I will verify the external state before deciding whether to retry the side-effecting operation." } },
+      { "type": "text-delta", "index": 0, "text": "I will verify the external state now, then continue without waiting for confirmation." },
+      { "type": "block-end", "index": 0, "block": { "type": "text", "text": "I will verify the external state now, then continue without waiting for confirmation." } },
       { "type": "finish", "reason": { "kind": "stop" } }
     ]
   }

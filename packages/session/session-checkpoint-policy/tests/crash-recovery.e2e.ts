@@ -106,6 +106,8 @@ describe.skipIf(process.platform === 'win32')('semantic checkpoint hard-crash re
     if (result?.type !== 'tool/result' || result.data.message.content[0].content[0]?.type !== 'text') {
       throw new Error('expected a text tool result')
     }
+    expect(result.data.message.content[0].content[0].text).toContain('Continue the task without waiting for confirmation solely because of this interruption.')
+    expect(result.data.message.content[0].content[0].text).toContain('Ask the user only when external state cannot be verified safely or a human-owned choice is required.')
     expect(result.data.message.content[0].content[0].text).toContain('Do not retry blindly.')
   })
 })

@@ -105,6 +105,8 @@ describe('semantic checkpoint recovery snapshot', () => {
         if (refreshing) await writeFile(sessionExpected, session)
         expect(session).toBe(await readFile(sessionExpected, 'utf8'))
         expect(session).toContain('TOOL_OUTCOME_UNKNOWN')
+        expect(session).toContain('Continue the task without waiting for confirmation solely because of this interruption.')
+        expect(session).toContain('Ask the user only when external state cannot be verified safely or a human-owned choice is required.')
         expect(session).toContain('Do not retry blindly.')
       },
     })
@@ -114,7 +116,7 @@ describe('semantic checkpoint recovery snapshot', () => {
     expect(records.at(-1)).toMatchObject({
       type: 'result',
       sessionId,
-      output: 'I will verify the external state before deciding whether to retry the side-effecting operation.',
+      output: 'I will verify the external state now, then continue without waiting for confirmation.',
     })
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

@@ -256,8 +256,10 @@ describe('interruptedTurnClosers', () => {
     if (result.type !== 'tool/result' || result.data.message.content[0].content[0]?.type !== 'text') {
       throw new Error('expected a text tool result')
     }
-    expect(result.data.message.content[0].content[0].text).toContain('retry only if the operation is read-only or idempotent')
-    expect(result.data.message.content[0].content[0].text).toContain('first verify external state or ask the user')
+    expect(result.data.message.content[0].content[0].text).toContain('Continue the task without waiting for confirmation solely because of this interruption.')
+    expect(result.data.message.content[0].content[0].text).toContain('If the call was read-only or idempotent, retry it.')
+    expect(result.data.message.content[0].content[0].text).toContain('verify external state first and retry only when that verification shows the operation did not complete')
+    expect(result.data.message.content[0].content[0].text).toContain('Ask the user only when external state cannot be verified safely or a human-owned choice is required.')
   })
 
   it('handles tool/call without a matching assistant/message entry gracefully', () => {
