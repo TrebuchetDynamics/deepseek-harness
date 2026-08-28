@@ -2,6 +2,8 @@
 # Host-native service rendering, supervision, lifecycle, and migration helpers.
 
 DSH_SERVICE_NAME=deepseek-harness.service
+DSH_PNPM_VERSION=11.7.0
+DSH_SERVICE_RUNTIME_DIR="${DSH_SERVICE_RUNTIME_DIR:-/run/deepseek-harness}"
 DSH_SYSTEM_ROOT="${DSH_SYSTEM_ROOT:-}"
 DSH_UNIT_FILE="$DSH_SYSTEM_ROOT/etc/systemd/system/$DSH_SERVICE_NAME"
 DSH_CONFIG_FILE="$DSH_SYSTEM_ROOT/etc/deepseek-harness.env"
@@ -137,12 +139,13 @@ native_dependency_guidance() {
       ;;
     *)
       printf 'error: unsupported Linux distribution %s; install manually: %s\n' "${distribution:-unknown}" "$missing" >&2
-      printf '%s\n' 'Required versions: Node.js ^22.19.0 or >=24.0.0; pnpm 11.7.0.' >&2
+      printf 'Required versions: Node.js ^22.19.0 or >=24.0.0; pnpm %s.\n' "$DSH_PNPM_VERSION" >&2
       return 1
       ;;
   esac
   printf 'error: missing host dependencies for the service user: %s\n' "$missing" >&2
-  printf '%s\n' "$guidance" "Suggested command (not executed): $command" 'Required versions: Node.js ^22.19.0 or >=24.0.0; pnpm 11.7.0.' >&2
+  printf '%s\n' "$guidance" "Suggested command (not executed): $command" >&2
+  printf 'Required versions: Node.js ^22.19.0 or >=24.0.0; pnpm %s.\n' "$DSH_PNPM_VERSION" >&2
   return 1
 }
 
@@ -164,6 +167,18 @@ native_collect_missing_user_tools() {
   for tool in node pnpm git curl caddy tailscale setsid ss systemd-notify; do
     native_login_exec "$user" "$home" "$login_shell" "command -v '$tool' >/dev/null" || result+=("$tool")
   done
+}
+
+native_enable_missing_pnpm() {
+  local user="$1" home="$2" login_shell="$3"
+  native_login_exec "$user" "$home" "$login_shell" 'command -v pnpm >/dev/null' && return 0
+  native_login_exec "$user" "$home" "$login_shell" 'command -v corepack >/dev/null' || return 0
+  dsh_info "Activating pnpm $DSH_PNPM_VERSION through Corepack for $user"
+  native_login_exec "$user" "$home" "$login_shell" \
+    "corepack prepare 'pnpm@$DSH_PNPM_VERSION' --activate && corepack enable pnpm" || {
+    dsh_die "could not activate pnpm $DSH_PNPM_VERSION through Corepack"
+    return 1
+  }
 }
 
 native_reconcile_caddy_package_service() {
@@ -239,6 +254,7 @@ native_require_user_tools() {
   local user="$1" home="$2" login_shell="$3" node_version pnpm_version
   local -a missing=()
   native_reconcile_caddy_package_service || return 1
+  native_enable_missing_pnpm "$user" "$home" "$login_shell" || return 1
   native_collect_missing_user_tools "$user" "$home" "$login_shell" missing
   if [ "${#missing[@]}" -gt 0 ]; then
     native_install_missing_host_packages "${missing[@]}" || return 1
@@ -269,8 +285,8 @@ process.exit((major === 22 && minor >= 19) || major >= 24 ? 0 : 1)
     return 1
   }
   pnpm_version="$(PATH="${DSH_NODE_BIN%/*}:$PATH" "$DSH_PNPM_BIN" --version)" || return 1
-  [ "$pnpm_version" = 11.7.0 ] || {
-    dsh_die "pnpm $pnpm_version is unsupported; install pnpm 11.7.0"
+  [ "$pnpm_version" = "$DSH_PNPM_VERSION" ] || {
+    dsh_die "pnpm $pnpm_version is unsupported; install pnpm $DSH_PNPM_VERSION"
     return 1
   }
   native_login_exec "$user" "$home" "$login_shell" 'caddy version' | grep -Eq '^v?2\.' || {
@@ -703,7 +719,7 @@ native_install() {
     fi
     return 1
   fi
-  native_show_urls
+  native_show_urls 1
   echo "Installed persistent $DSH_SERVICE_NAME; it continues in the background."
   echo "This command is complete. Use './start.sh status' or './start.sh logs' to inspect it."
 }
@@ -773,8 +789,20 @@ native_as_root() {
 
 native_show_urls() {
   dsh_load_tailscale_identity
-  local public_url="https://$DSH_MAGICDNS/"
+  local include_launch_token="${1:-0}" public_url="https://$DSH_MAGICDNS/" launch_url token
   [ "${DSH_HTTPS_PORT:-443}" = 443 ] || public_url="https://$DSH_MAGICDNS:${DSH_HTTPS_PORT}/"
+  if [ "$include_launch_token" = 1 ]; then
+    IFS= read -r launch_url <"$DSH_SERVICE_RUNTIME_DIR/backend-url" || {
+      dsh_die "cannot read the active Harness launch URL"
+      return 1
+    }
+    token="${launch_url#*\?token=}"
+    [[ "$launch_url" =~ ^http://127\.0\.0\.1:[0-9]+/\?token=[A-Za-z0-9_-]+$ && "$token" =~ ^[A-Za-z0-9_-]+$ ]] || {
+      dsh_die "the active Harness launch URL is malformed"
+      return 1
+    }
+    public_url="${public_url}?token=$token"
+  fi
   echo "Web UI: $public_url"
   echo "Local proxy: http://127.0.0.1:${DSH_PUBLIC_PORT:-4080}/"
 }
@@ -874,7 +902,7 @@ native_validate_config() {
   done
 }
 
-# Wait for an HTTP endpoint while proving its owning child remains alive.
+# Wait for any HTTP response while proving its owning child remains alive.
 dsh_wait_http_process() {
   local pid="$1" url="$2" timeout="$3" subject="$4" deadline="${5:-$((SECONDS + 10#$timeout))}"
   while (( SECONDS < deadline )); do
@@ -883,20 +911,35 @@ dsh_wait_http_process() {
       dsh_die "$subject exited before becoming ready"
       return 1
     }
-    curl -fsS --max-time 1 -o /dev/null "$url" 2>/dev/null && return 0
+    curl -sS --max-time 1 -o /dev/null "$url" 2>/dev/null && return 0
     sleep 1
   done
   dsh_die "$subject did not become ready at $url within ${timeout}s"
 }
 
+# Wait for a file while proving its producing child remains alive.
+dsh_wait_file_process() {
+  local pid="$1" file="$2" timeout="$3" subject="$4" deadline="${5:-$((SECONDS + 10#$timeout))}"
+  while (( SECONDS < deadline )); do
+    kill -0 "$pid" 2>/dev/null || {
+      wait "$pid" 2>/dev/null || true
+      dsh_die "$subject exited before becoming ready"
+      return 1
+    }
+    [ -s "$file" ] && return 0
+    sleep 1
+  done
+  dsh_die "$subject did not become ready within ${timeout}s"
+}
+
 # Wait for a URL that is not owned by a directly observable child process.
 dsh_wait_url() {
-  local url="$1" timeout="$2" subject="$3" deadline="${4:-$((SECONDS + 10#$timeout))}"
+  local url="$1" timeout="$2" subject="$3" deadline="${4:-$((SECONDS + 10#$timeout))}" report_url="${5:-$url}"
   while (( SECONDS < deadline )); do
     curl -fsS --max-time 1 -o /dev/null "$url" 2>/dev/null && return 0
     sleep 1
   done
-  dsh_die "$subject did not become ready at $url within ${timeout}s"
+  dsh_die "$subject did not become ready at $report_url within ${timeout}s"
 }
 
 # Run Harness, Caddy, and host Tailscale publication as one supervised service.
@@ -934,8 +977,9 @@ native_service_run() {
     return 1
   }
 
-  local runtime_directory="${RUNTIME_DIRECTORY:-/run/deepseek-harness}"
+  local runtime_directory="${RUNTIME_DIRECTORY:-$DSH_SERVICE_RUNTIME_DIR}"
   local backend_launcher="$runtime_directory/launch-backend"
+  local backend_url_file="$runtime_directory/backend-url"
   local token backend_pid="" caddy_pid="" serve_published=0 child_status=0
   mkdir -p "$runtime_directory"
   [ -x "${DSH_NODE_BIN:-}" ] || DSH_NODE_BIN="$("$login_shell" -lc 'command -v node')"
@@ -958,9 +1002,22 @@ IFS=',' read -ra extra_hosts <<<"${DSH_EXTRA_TRUSTED_HOSTS:-}"
 for host in "${extra_hosts[@]}"; do
   [ -z "$host" ] || args+=(--trusted-host "$host")
 done
-PATH="${DSH_NODE_BIN%/*}:$PATH" exec "$DSH_PNPM_BIN" "${args[@]}"
+PATH="${DSH_NODE_BIN%/*}:$PATH" "$DSH_PNPM_BIN" "${args[@]}" | while IFS= read -r line; do
+  case "$line" in
+    "dsh web: http://127.0.0.1:${DSH_PORT}/?token="*)
+      launch_url="${line#dsh web: }"
+      launch_url="${launch_url%% *}"
+      printf '%s\n' "$launch_url" >"$DSH_BACKEND_URL_FILE.tmp"
+      chmod 0600 "$DSH_BACKEND_URL_FILE.tmp"
+      mv -f "$DSH_BACKEND_URL_FILE.tmp" "$DSH_BACKEND_URL_FILE"
+      printf '%s\n' 'dsh web: launch URL captured for the installer'
+      ;;
+    *) printf '%s\n' "$line" ;;
+  esac
+done
 BACKEND
   chmod 0600 "$backend_launcher"
+  rm -f "$backend_url_file" "$backend_url_file.tmp"
 
   cleanup_native_runtime() {
     trap - INT TERM EXIT
@@ -978,13 +1035,14 @@ BACKEND
         dsh_warn "could not prove ownership of the Tailscale Serve route; leaving it unchanged"
       fi
     fi
-    rm -f "$backend_launcher"
+    rm -f "$backend_launcher" "$backend_url_file" "$backend_url_file.tmp"
   }
   trap 'cleanup_native_runtime; exit 130' INT
   trap 'cleanup_native_runtime; exit 143' TERM
   trap cleanup_native_runtime EXIT
 
   export DSH_BACKEND_LAUNCHER="$backend_launcher"
+  export DSH_BACKEND_URL_FILE="$backend_url_file"
   export DSH_EXTRA_TRUSTED_HOSTS DSH_MAGICDNS DSH_TAILSCALE_IP
   # Hardened hosts may mount the systemd runtime directory with noexec.
   # Only this supervisor owns systemd readiness notifications.
@@ -1012,20 +1070,22 @@ BACKEND
   [ "$DSH_HTTPS_PORT" = 443 ] || public_url="https://$DSH_MAGICDNS:$DSH_HTTPS_PORT/"
 
   native_runtime_until_exit() {
-    local startup_deadline=$((SECONDS + 10#$DSH_STARTUP_TIMEOUT))
+    local startup_deadline=$((SECONDS + 10#$DSH_STARTUP_TIMEOUT)) launch_url launch_token
     systemd-notify --status="Waiting for the Harness backend" 2>/dev/null || true
-    dsh_wait_http_process "$backend_pid" "http://127.0.0.1:$DSH_BACKEND_PORT/" "$DSH_STARTUP_TIMEOUT" "Harness backend" "$startup_deadline" || return $?
+    dsh_wait_file_process "$backend_pid" "$backend_url_file" "$DSH_STARTUP_TIMEOUT" "Harness backend" "$startup_deadline" || return $?
+    IFS= read -r launch_url <"$backend_url_file"
+    launch_token="${launch_url#*\?token=}"
     systemd-notify --status="Waiting for the Caddy identity proxy" 2>/dev/null || true
     dsh_wait_http_process "$caddy_pid" "http://127.0.0.1:$DSH_PUBLIC_PORT/" "$DSH_STARTUP_TIMEOUT" "Caddy proxy" "$startup_deadline" || return $?
     systemd-notify --status="Checking owner-only proxy authorization" 2>/dev/null || true
-    dsh_probe_identity_proxy "http://127.0.0.1:$DSH_PUBLIC_PORT" "$DSH_MAGICDNS" "$configured_owner" "$startup_deadline" || return $?
+    dsh_probe_identity_proxy "http://127.0.0.1:$DSH_PUBLIC_PORT" "$DSH_MAGICDNS" "$configured_owner" "$launch_url" "$startup_deadline" || return $?
     systemd-notify --status="Publishing Tailscale HTTPS" 2>/dev/null || true
     tailscale serve --yes --bg --https="$DSH_HTTPS_PORT" "http://127.0.0.1:$DSH_PUBLIC_PORT" || {
       dsh_die "failed to publish $public_url with Tailscale Serve"
       return 1
     }
     serve_published=1
-    dsh_wait_url "$public_url" "$DSH_STARTUP_TIMEOUT" "Tailscale HTTPS" "$startup_deadline" || return $?
+    dsh_wait_url "${public_url}?token=$launch_token" "$DSH_STARTUP_TIMEOUT" "Tailscale HTTPS" "$startup_deadline" "$public_url" || return $?
     kill -0 "$backend_pid" 2>/dev/null || {
       dsh_die "Harness backend exited before service readiness"
       return 1

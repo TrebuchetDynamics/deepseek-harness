@@ -29,14 +29,20 @@
 
 	@owner_sensitive {
 		header Tailscale-User-Login {$TAILSCALE_OWNER}
-		path /api/settings.* /api/credentials.* /api/llm.providers /api/llm.discoverModels /api/agentPreset.read /api/agentPreset.copy /api/agentPreset.openDocument /api/agentPreset.remove /api/host.pickDirectory /api/host.openPath /api/dsh-skill-explorer/* /api/dsh-ssh/*
+		path /api/settings/* /api/credentials/* /api/llm/listProviders /api/llm/listConfigurableProviders /api/llm/discoverModels /api/agentPreset/read /api/agentPreset/copy /api/agentPreset/openDocument /api/agentPreset/remove /api/host/pickDirectory /api/host/openPath /api/dsh-skill-explorer/* /api/dsh-ssh/*
 	}
 
 	handle @owner_sensitive {
 		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
-			header_up Host 127.0.0.1:{$DSH_BACKEND_PORT}
-			header_up Origin http://127.0.0.1:{$DSH_BACKEND_PORT}
+			header_up Host {http.request.host}
 		}
+	}
+
+	@sensitive {
+		path /api/settings/* /api/credentials/* /api/llm/listProviders /api/llm/listConfigurableProviders /api/llm/discoverModels /api/agentPreset/read /api/agentPreset/copy /api/agentPreset/openDocument /api/agentPreset/remove /api/host/pickDirectory /api/host/openPath /api/task-board/* /api/dsh-skill-explorer/* /api/dsh-ssh/*
+	}
+	handle @sensitive {
+		respond 403
 	}
 
 	# Preserve upstream's remote restrictions for every request not carrying the

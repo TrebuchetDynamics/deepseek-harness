@@ -44,7 +44,7 @@ function createRuntimeFixture(): RuntimeFixture {
   )
   executable(
     join(bin, 'pnpm'),
-    'printf "backend start\\n" >> "$CALLS"\ntrap \'printf "backend TERM\\n" >> "$CALLS"; exit 0\' TERM INT\nwhile :; do sleep 1; done',
+    'printf "backend start\\n" >> "$CALLS"\nprintf "dsh web: http://127.0.0.1:4081/?token=fixture-token\\n"\ntrap \'printf "backend TERM\\n" >> "$CALLS"; exit 0\' TERM INT\nwhile :; do sleep 1; done',
   )
   executable(
     join(bin, 'caddy'),
@@ -61,6 +61,13 @@ esac`,
   executable(
     join(bin, 'curl'),
     `case "$*" in
+  *'?token=fixture-token'*)
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = -c ]; then shift; printf 'fixture-cookie\n' > "$1"; fi
+      shift
+    done
+    printf 303
+    ;;
   *unauthorized@example.invalid*) printf 403 ;;
   *owner@example.test*)
     if [ "\${OWNER_404_ONCE:-0}" = 1 ] && [ ! -e "$CALLS.owner-404" ]; then
@@ -69,6 +76,9 @@ esac`,
     else
       printf '%s' "\${OWNER_STATUS:-200}"
     fi
+    ;;
+  *127.0.0.1*)
+    if [[ "$*" == *-f* ]] && [ "\${ROOT_STATUS:-200}" -ge 400 ]; then exit 22; fi
     ;;
   *) exit 0 ;;
 esac`,
@@ -238,7 +248,7 @@ fi`,
   )
   executable(
     join(bin, 'systemctl'),
-    'printf "systemctl %s\\n" "$*" >> "$CALLS"\ncase "$*" in "cat caddy.service") [ "${CADDY_UNIT_PRESENT:-0}" = 1 ] || [ -x "${PACKAGE_CADDY_TARGET:-/nonexistent}" ] || exit 1 ;; status*) [ -z "${LEAK_TEXT:-}" ] || printf "%s\\n" "$LEAK_TEXT" >&2 ;; esac\nif [ "${FAIL_CADDY_DISABLE:-0}" = 1 ] && [ "$*" = "disable --now caddy.service" ]; then exit 8; fi\nif [ "${FAIL_NATIVE:-0}" = 1 ] && [ "$*" = "enable --now deepseek-harness.service" ]; then exit 1; fi',
+    'printf "systemctl %s\\n" "$*" >> "$CALLS"\ncase "$*" in "cat caddy.service") [ "${CADDY_UNIT_PRESENT:-0}" = 1 ] || [ -x "${PACKAGE_CADDY_TARGET:-/nonexistent}" ] || exit 1 ;; status*) [ -z "${LEAK_TEXT:-}" ] || printf "%s\\n" "$LEAK_TEXT" >&2 ;; esac\nif [ "${FAIL_CADDY_DISABLE:-0}" = 1 ] && [ "$*" = "disable --now caddy.service" ]; then exit 8; fi\nif [ "${FAIL_NATIVE:-0}" = 1 ] && [ "$*" = "enable --now deepseek-harness.service" ]; then exit 1; fi\nif [ "$*" = "enable --now deepseek-harness.service" ]; then mkdir -p "$DSH_SERVICE_RUNTIME_DIR"; printf "http://127.0.0.1:4081/?token=fixture-token\\n" > "$DSH_SERVICE_RUNTIME_DIR/backend-url"; fi',
   )
   executable(
     join(bin, 'journalctl'),
@@ -267,6 +277,7 @@ function runLifecycle(
       DSH_SERVICE_USER: 'node',
       DSH_DEPLOYMENT_LOCK_HELD: '1',
       DSH_SYSTEM_ROOT: fixture.systemRoot,
+      DSH_SERVICE_RUNTIME_DIR: join(fixture.root, 'service-run'),
       HIDE_CADDY_UNTIL: join(fixture.bin, 'caddy'),
       LOGIN_SHELL: fixture.loginShell,
       PATH: `${fixture.bin}:${process.env.PATH ?? ''}`,
@@ -356,6 +367,7 @@ describe('native Harness service installation', () => {
         'systemctl status --no-pager --full deepseek-harness.service',
       )
       expect(result.stdout).toContain('Web UI: https://host.tail.test/')
+      expect(result.stdout).not.toContain('token=')
       expect(result.stdout).toContain('Local proxy: http://127.0.0.1:4080/')
     },
   )
@@ -406,6 +418,9 @@ describe('native Harness service installation', () => {
       expect(result.status, result.stderr).toBe(0)
       expect(readFileSync(fixture.calls, 'utf8')).toContain(
         'systemctl enable --now deepseek-harness.service',
+      )
+      expect(result.stdout).toContain(
+        'Web UI: https://host.tail.test/?token=fixture-token',
       )
       expect(result.stdout).toContain(
         'Installed persistent deepseek-harness.service; it continues in the background.',
@@ -571,6 +586,33 @@ describe('native Harness service installation', () => {
       const calls = readFileSync(fixture.calls, 'utf8')
       expect(calls).toContain('dnf install -y caddy')
       expect(calls).toContain('systemctl disable --now caddy.service')
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'activates the pinned pnpm through Corepack when pnpm is missing',
+    () => {
+      const fixture = createInstallFixture()
+      const pnpm = join(fixture.bin, 'pnpm')
+      const packagedPnpm = join(fixture.bin, 'packaged-pnpm')
+      renameSync(pnpm, packagedPnpm)
+      executable(join(fixture.bin, 'node'), 'exec "$REAL_NODE" "$@"')
+      executable(
+        join(fixture.bin, 'corepack'),
+        'printf "corepack %s\n" "$*" >> "$CALLS"\ncase "$*" in "prepare pnpm@11.7.0 --activate") : ;; "enable pnpm") cp "$COREPACK_PNPM_SOURCE" "$COREPACK_PNPM_TARGET" ;; *) exit 1 ;; esac',
+      )
+
+      const result = runInstaller(fixture, {
+        COREPACK_PNPM_SOURCE: packagedPnpm,
+        COREPACK_PNPM_TARGET: pnpm,
+        LOGIN_PATH: `${fixture.bin}:/usr/bin:/bin:/usr/sbin:/sbin`,
+        REAL_NODE: process.execPath,
+      })
+
+      expect(result.status, result.stderr).toBe(0)
+      const calls = readFileSync(fixture.calls, 'utf8')
+      expect(calls).toContain('corepack prepare pnpm@11.7.0 --activate')
+      expect(calls).toContain('corepack enable pnpm')
     },
   )
 
@@ -1127,6 +1169,9 @@ describe('native Harness runtime', () => {
       const child = spawnRuntime(fixture)
       try {
         await waitForLog(fixture.calls, 'notify --ready')
+        expect(readFileSync(join(fixture.runtime, 'backend-url'), 'utf8')).toBe(
+          'http://127.0.0.1:4081/?token=fixture-token\n',
+        )
         child.kill('SIGTERM')
         await waitForExit(child)
         const log = readFileSync(fixture.calls, 'utf8')
@@ -1136,6 +1181,21 @@ describe('native Harness runtime', () => {
         expect(log).toContain('backend TERM')
         expect(log).toContain('caddy TERM')
         expect(log).not.toContain('caddy inherited notify')
+      } finally {
+        if (child.exitCode === null) child.kill('SIGKILL')
+      }
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'accepts an unauthenticated 404 while waiting for the token-protected Web roots',
+    async () => {
+      const fixture = createRuntimeFixture()
+      const child = spawnRuntime(fixture, { ROOT_STATUS: '404' })
+      try {
+        await waitForLog(fixture.calls, 'notify --ready')
+        child.kill('SIGTERM')
+        await waitForExit(child)
       } finally {
         if (child.exitCode === null) child.kill('SIGKILL')
       }

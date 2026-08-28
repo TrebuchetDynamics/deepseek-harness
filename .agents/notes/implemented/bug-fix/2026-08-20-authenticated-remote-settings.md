@@ -10,7 +10,7 @@ The browser settings layer classified every non-loopback URL as permanently unav
 
 ## Decision
 
-Browser settings always use the Host transport. The Host remains the authorization authority: ordinary remote requests are rejected there, while an authenticated reverse proxy may rewrite `Host` and `Origin` only for its identified owner. The Tailscale Caddy matcher includes the configuration methods and owner-only plugin routes that the remote GUI uses. Remote SSH HTTP and WebSocket requests receive the loopback Host and Origin translation only after the matcher verifies `TAILSCALE_OWNER`; other identities keep the public authority and fail the plugin's loopback fence.
+Browser settings always use the Host transport. Connection authenticates the complete Host API with the authority-bound browser cookie minted by the process launch-token exchange. The Tailscale Caddy matcher preserves the browser `Host` and `Origin` for configuration namespaces and integrated owner-only plugin routes, forwards those paths for `TAILSCALE_OWNER`, and returns 403 for other identities before the fallback proxy. Trusted hosts remain DNS-rebinding and cross-site checks rather than user identity.
 
 Task Board retains its own proxy fence instead of receiving a loopback rewrite. The launcher generates a fresh random token, shares it only with the Host and Caddy containers, and Caddy injects it after matching `TAILSCALE_OWNER`; the fallback proxy strips any client-supplied copy. Caddy preserves the browser authority and request markers; in particular, it does not synthesize an empty `Origin` on same-origin GET requests, whose browser proof is `Sec-Fetch-Site: same-origin`.
 
@@ -26,4 +26,4 @@ The explicit in-memory mode remains available to embedded consumers and tests, b
 
 ## Consequences
 
-Authenticated Tailscale owners can load Models, durable settings pages, Remote SSH, and explicitly integrated owner controls. Other tailnet identities retain the Host's remote denial because Caddy neither rewrites their authority nor supplies private route credentials. Focused client tests cover remote mirror and scope activation; live Playwright checks through Tailscale Serve cover settings reads and Task Board state, event, create, filter, move, and delete operations.
+Authenticated Tailscale owners can load Models, durable settings pages, and explicitly integrated owner controls after one browser launch-token exchange. Other tailnet identities receive 403 on the sensitive path prefixes even when they hold a valid Harness browser session. Focused tests pin the current path prefixes, browser-authority preservation, launch-token exchange, and the owner 200 versus non-owner 403 probe.

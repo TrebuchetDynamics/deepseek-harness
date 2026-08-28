@@ -323,17 +323,29 @@ if ! "${compose_cmd[@]}" "${compose_files[@]}" up -d --force-recreate --remove-o
 fi
 proxy="http://127.0.0.1:${DSH_PUBLIC_PORT}"
 proxy_ready=
+startup_deadline=$((SECONDS + DSH_STARTUP_TIMEOUT))
 # The auth-proxy binds only after the dsh healthcheck passes, and a cold
 # `pnpm dsh` boot (tsx compiling the checkout) can take tens of seconds.
-for ((attempt = 0; attempt < DSH_STARTUP_TIMEOUT; attempt++)); do
-  if curl -fsS -o /dev/null "$proxy/" 2>/dev/null; then proxy_ready=1; break; fi
+while (( SECONDS < startup_deadline )); do
+  if curl -sS -o /dev/null "$proxy/" 2>/dev/null; then proxy_ready=1; break; fi
   sleep 1
 done
 if [ -z "$proxy_ready" ]; then
   diagnose_stack
   die "proxy did not start at $proxy within ${DSH_STARTUP_TIMEOUT}s"
 fi
-if ! proxy_check="$(dsh_probe_identity_proxy "$proxy" "$magicdns" "$TAILSCALE_OWNER" "$((SECONDS + DSH_STARTUP_TIMEOUT))" 2>&1)"; then
+launch_url=
+while (( SECONDS < startup_deadline )); do
+  launch_url="$("${compose_cmd[@]}" "${compose_files[@]}" logs --no-color dsh 2>/dev/null \
+    | grep -Eo 'http://127\.0\.0\.1:[0-9]+/\?token=[A-Za-z0-9_-]+' | tail -n1 || true)"
+  [ -z "$launch_url" ] || break
+  sleep 1
+done
+[ -n "$launch_url" ] || {
+  diagnose_stack
+  die "Harness container did not publish a launch URL"
+}
+if ! proxy_check="$(dsh_probe_identity_proxy "$proxy" "$magicdns" "$TAILSCALE_OWNER" "$launch_url" "$startup_deadline" 2>&1)"; then
   diagnose_stack
   printf '%s\n' "$proxy_check" >&2
   exit 1
@@ -341,3 +353,4 @@ fi
 
 tailscale serve --tcp=80 off >/dev/null 2>&1 || true
 tailscale serve --yes --bg --https=443 "$proxy" || die "failed to publish $proxy with Tailscale Serve"
+echo "Web UI: https://$magicdns/?token=${launch_url#*\?token=}"

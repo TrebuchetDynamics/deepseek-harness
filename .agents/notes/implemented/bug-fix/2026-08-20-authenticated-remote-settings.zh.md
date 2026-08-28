@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-浏览器设置始终使用 Host transport。Host 仍是授权权威：普通远程请求由 Host 拒绝，而经认证的反向代理只能为已识别的属主改写 `Host` 与 `Origin`。Tailscale Caddy matcher 包含远程 GUI 使用的配置方法与仅限属主的插件路由。只有 matcher 验证 `TAILSCALE_OWNER` 后，Remote SSH 的 HTTP 与 WebSocket 请求才会收到回环 Host 与 Origin 转换；其他身份保留公开 authority，并由插件的回环栅栏拒绝。
+浏览器设置始终使用 Host transport。Connection 使用进程启动令牌交换所得、绑定 authority 的浏览器 cookie 来认证完整 Host API。Tailscale Caddy matcher 为配置 namespace 与已集成的仅限属主插件路由保留浏览器 `Host` 和 `Origin`，只为 `TAILSCALE_OWNER` 转发这些路径，并在 fallback 代理之前对其他身份返回 403。trusted host 仍用于 DNS rebinding 与跨站检查，而不代表用户身份。
 
 Task Board 保留自身的代理防护，而不接收 loopback 改写。启动器生成新的随机令牌，仅与 Host 和 Caddy 容器共享；Caddy 只在匹配 `TAILSCALE_OWNER` 后注入该令牌，fallback 代理会移除客户端提供的同名令牌。Caddy 保留浏览器 authority 与请求标记；尤其不会为同源 GET 请求合成空的 `Origin`，这类请求以 `Sec-Fetch-Site: same-origin` 作为浏览器证明。
 
@@ -26,4 +26,4 @@ Task Board 保留自身的代理防护，而不接收 loopback 改写。启动�
 
 ## 后果
 
-经过认证的 Tailscale 属主可以加载 Models、持久设置页面、Remote SSH 和明确集成的属主控制。其他 tailnet 身份仍由 Host 拒绝，因为 Caddy 不会为其改写 authority 或提供私有路由凭据。聚焦客户端测试覆盖远程 mirror 和 scope 激活；经 Tailscale Serve 的真实 Playwright 检查覆盖设置读取，以及 Task Board 的状态、事件、创建、筛选、移动与删除操作。
+经过一次浏览器启动令牌交换后，已认证的 Tailscale 属主可以加载 Models、持久设置页面和明确集成的属主控制。其他 tailnet 身份即使持有有效 Harness 浏览器会话，在敏感路径前缀上仍会收到 403。聚焦测试固定当前路径前缀、浏览器 authority 保留、启动令牌交换，以及属主 200 与非属主 403 探测。

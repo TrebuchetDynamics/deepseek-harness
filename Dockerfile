@@ -74,10 +74,9 @@ COPY --chmod=755 docker/dsh-entrypoint.sh /usr/local/bin/dsh-entrypoint.sh
 
 WORKDIR /workspace
 
-# The web route answers index.html on loopback; used only to report container
-# readiness. The /api path is what the fence guards, and it stays loopback.
+# Any HTTP response proves the token-protected Web listener is bound.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:${DSH_PORT:-3080}/ >/dev/null || exit 1
+  CMD curl -sS http://127.0.0.1:${DSH_PORT:-3080}/ >/dev/null || exit 1
 
 # No VOLUME declarations: compose owns state (the tsstate named volume);
 # anonymous volumes would silently accumulate on every standalone relaunch.

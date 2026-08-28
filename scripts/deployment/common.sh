@@ -153,28 +153,53 @@ let s=""; process.stdin.on("data", d => s += d).on("end", () => {
 
 # Prove that the proxy denies an unowned identity and admits its configured owner.
 dsh_probe_identity_proxy() {
-  local proxy="$1" magicdns="$2" owner="$3" deadline="${4:-$SECONDS}" denied allowed
+  local proxy="$1" magicdns="$2" owner="$3" launch_url="$4" deadline="${5:-$SECONDS}"
+  local token cookie_jar exchange denied allowed
+  token="${launch_url#*\?token=}"
+  [[ "$launch_url" =~ ^http://127\.0\.0\.1:[0-9]+/\?token=[A-Za-z0-9_-]+$ && "$token" =~ ^[A-Za-z0-9_-]+$ ]] || {
+    dsh_die "Harness backend did not publish a valid launch URL"
+    return 1
+  }
+  cookie_jar="$(mktemp)" || return 1
+  chmod 0600 "$cookie_jar"
+  exchange="$(curl -sS --max-time 5 -c "$cookie_jar" -o /dev/null -w '%{http_code}' \
+    "$proxy/?token=$token" -H "Host: $magicdns")" || {
+    rm -f "$cookie_jar"
+    dsh_die "browser launch-token exchange through the identity proxy failed"
+    return 1
+  }
+  if [ "$exchange" != 303 ]; then
+    rm -f "$cookie_jar"
+    dsh_die "browser launch-token exchange through the identity proxy returned $exchange"
+    return 1
+  fi
   local probe=(
-    -sS --max-time 5 -o /dev/null -w '%{http_code}' -X POST
-    "$proxy/api/settings.describe"
+    -sS --max-time 5 -b "$cookie_jar" -o /dev/null -w '%{http_code}' -X POST
+    "$proxy/api/settings/describe"
     -H "Host: $magicdns"
     -H "Origin: https://$magicdns"
     -H 'content-type: application/json'
-    --data '{}'
+    --data '{"type":"client-request","rpcId":"deployment-probe","method":"settings/describe","payload":{"args":{}}}'
   )
   while :; do
     denied="$(curl "${probe[@]}" -H 'Tailscale-User-Login: unauthorized@example.invalid')" || {
+      rm -f "$cookie_jar"
       dsh_die "Tailscale identity proxy self-check request failed for the unauthorized identity"
       return 1
     }
     allowed="$(curl "${probe[@]}" -H "Tailscale-User-Login: $owner")" || {
+      rm -f "$cookie_jar"
       dsh_die "Tailscale identity proxy self-check request failed for $owner"
       return 1
     }
-    [ "$denied" = 403 ] && [ "$allowed" = 200 ] && return 0
+    if [ "$denied" = 403 ] && [ "$allowed" = 200 ]; then
+      rm -f "$cookie_jar"
+      return 0
+    fi
     [ "$denied" = 403 ] && [ "$allowed" = 404 ] && (( SECONDS < deadline )) || break
     sleep 1
   done
+  rm -f "$cookie_jar"
   dsh_die "Tailscale identity proxy self-check failed (denied=$denied allowed=$allowed)"
   return 1
 }

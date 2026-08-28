@@ -24,13 +24,29 @@ function executable(path: string, body: string): void {
 }
 
 describe('Docker Tailscale proxy', () => {
-  it('rewrites owner SSH API requests to loopback', () => {
+  it('preserves browser authority for owner APIs and denies other identities', () => {
     const config = readFileSync(caddyfile, 'utf8')
     const ownerMatcher = config.slice(
       config.indexOf('@owner_sensitive'),
       config.indexOf('handle @owner_sensitive'),
     )
+    const ownerProxy = config.slice(
+      config.indexOf('handle @owner_sensitive'),
+      config.indexOf('@sensitive'),
+    )
+    expect(ownerMatcher).toContain('/api/settings/*')
     expect(ownerMatcher).toContain('/api/dsh-ssh/*')
+    expect(ownerProxy).not.toContain('header_up Host 127.0.0.1')
+    expect(config).toContain('handle @sensitive {\n\t\trespond 403')
+  })
+
+  it('treats token-protected root responses as container readiness', () => {
+    expect(readFileSync(dockerfile, 'utf8')).toContain(
+      'curl -sS http://127.0.0.1:${DSH_PORT:-3080}/',
+    )
+    expect(readFileSync(launcher, 'utf8')).toContain(
+      'curl -sS -o /dev/null "$proxy/"',
+    )
   })
 
   it('preserves an absent Origin header on ordinary requests', () => {
@@ -96,6 +112,7 @@ describe('Docker Harness entrypoint', () => {
           ...process.env,
           CALLS: calls,
           DSH_REPO: checkout,
+          DSH_HOME: join(root, '.dsh'),
           DSH_UID: '1200',
           DSH_GID: '1201',
           DSH_DOCKER_GID: '984',
@@ -139,7 +156,7 @@ describe('run-docker launcher', () => {
       )
       executable(
         join(bin, 'docker'),
-        'printf "docker %s\\n" "$*" >> "$CALLS"\n[ "$*" != "--version" ] || echo "Docker version 28"',
+        'printf "docker %s\\n" "$*" >> "$CALLS"\n[ "$*" != "--version" ] || echo "Docker version 28"\ncase "$*" in *" logs --no-color dsh") echo "dsh web: http://127.0.0.1:4081/?token=fixture-token" ;; esac',
       )
       executable(
         join(bin, 'tailscale'),
@@ -152,6 +169,13 @@ esac`,
       executable(
         join(bin, 'curl'),
         `case "$*" in
+  *'?token=fixture-token'*)
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = -c ]; then shift; printf 'fixture-cookie\n' > "$1"; fi
+      shift
+    done
+    printf 303
+    ;;
   *unauthorized@example.invalid*) printf 403 ;;
   *owner@example.test*) printf 200 ;;
 esac`,
@@ -200,6 +224,9 @@ esac`,
           '; continuing without Java\n',
       )
       expect(result.status).toBe(0)
+      expect(result.stdout).toContain(
+        'Web UI: https://host.tail.test/?token=fixture-token',
+      )
       const log = readFileSync(calls, 'utf8')
       expect(log).toContain(
         `pnpm --dir ${checkout} install --frozen-lockfile\npnpm --dir ${checkout} run build\n`,
@@ -313,6 +340,7 @@ esac`,
 case "$*" in
   "--version") echo "Docker version 28" ;;
   "context inspect --format {{.Endpoints.docker.Host}}") echo "tcp://remote.example.test:2376" ;;
+  *" logs --no-color dsh") echo "dsh web: http://127.0.0.1:4081/?token=fixture-token" ;;
 esac
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-f" ]; then
@@ -332,6 +360,13 @@ esac`,
       executable(
         join(bin, 'curl'),
         `case "$*" in
+  *'?token=fixture-token'*)
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = -c ]; then shift; printf 'fixture-cookie\n' > "$1"; fi
+      shift
+    done
+    printf 303
+    ;;
   *unauthorized@example.invalid*) printf 403 ;;
   *owner@example.test*) printf 200 ;;
 esac`,
