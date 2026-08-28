@@ -689,6 +689,8 @@ describe('web e2e: long Chat scroll contract', () => {
         RESTORE_FIXTURE_A,
       )
       await expectSameFlowTop(world.page, narrowSessionAnchor)
+      await world.page.keyboard.press('Escape')
+      await expect.poll(() => world.page.locator('[data-drawer]').count()).toBe(0)
 
       const backToBottom = world.page.getByRole('button', { name: 'Back to bottom', exact: true })
       await backToBottom.evaluate((button) => {
@@ -704,6 +706,7 @@ describe('web e2e: long Chat scroll contract', () => {
       await world.page.getByLabel('Trajectory timeline').waitFor({ timeout: 30_000 })
       await world.page.getByRole('tab', { name: 'Chat', exact: true }).click()
       await expectBottom(world.page)
+      await world.page.getByRole('button', { name: 'Open sidebar', exact: true }).click()
       await openSeed(
         world.page,
         RESTORE_FIXTURE_B,
@@ -714,6 +717,10 @@ describe('web e2e: long Chat scroll contract', () => {
         RESTORE_FIXTURE_A,
         RESTORE_FIXTURE_A.markers.assistant(RESTORE_FIXTURE_A.turns),
       )
+      await world.page.keyboard.press('Escape')
+      await expect.poll(() => world.page.locator('[data-drawer]').count()).toBe(0)
+      await world.page.setViewportSize({ width: 1024, height: 900 })
+      await nextPaint(world.page)
       await expectBottom(world.page)
       const composer = world.page.locator('[data-composer-input][contenteditable="true"]').last()
       const longDraft = Array.from(

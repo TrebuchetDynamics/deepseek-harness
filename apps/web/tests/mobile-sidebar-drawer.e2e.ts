@@ -87,7 +87,7 @@ describe('web e2e: mobile sidebar drawer', () => {
     page = await newEnglishPage(browser, VIEWPORT.height)
     tripwire = watchConsole(page)
     await page.setViewportSize(VIEWPORT)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page
       .locator('[data-sidebar-collapsed="true"]')
       .waitFor({ timeout: 30_000 })
