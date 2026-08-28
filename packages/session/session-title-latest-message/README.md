@@ -1,11 +1,29 @@
+---
+description: "Deterministic session-title provider that derives each title from the newest eligible human message; for profile authors and maintainers."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-session-title-latest-message
 
 English | [中文](README.zh.md)
 
-Optional `ctx.sessionTitle` provider that renames a session to the leading words of its newest eligible human message after every prompt. It registers the `all-prompts` cadence and starts a new revision after each new human prompt, including child-session prompts; a newer revision aborts and supersedes older work. The derivation is fully deterministic — no model request — so the rename only costs the log-only `session/title` event.
+## Summary
 
-Only text blocks from human `user/message` events are eligible, following the service's collection rule. The title is normalized exactly like the built-in fallback: whitespace is collapsed, terminal control sequences are removed, only the first `maxWords` words are kept, and UTF-8 truncation to `maxBytes` never splits a code point. Empty and non-text prompts wait for later eligible input; the newest message always wins.
+This optional `ctx.sessionTitle` provider renames a session to the leading words of its newest eligible human message after every prompt. It registers the `all-prompts` cadence and starts a new revision after each new human prompt, including child-session prompts; a newer revision aborts and supersedes older work. The derivation is deterministic and makes no model request, so the rename only costs the log-only `session/title` event.
 
+Only text blocks from human `user/message` events are eligible, following the service's collection rule. The title is normalized like the built-in fallback: whitespace is collapsed, terminal control sequences are removed, only the first `maxWords` words are kept, and UTF-8 truncation to `maxBytes` never splits a code point. Empty and non-text prompts wait for later eligible input; the newest message always wins.
+
+## Table of Contents
+
+- [Configuration](#configuration)
+- [Provider contract](#provider-contract)
+- [Further Exploration](#further-exploration)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+
+-----
+
+<a id="configuration"></a>
 ## Configuration
 
 | Key | Contract |
@@ -15,10 +33,22 @@ Only text blocks from human `user/message` events are eligible, following the se
 
 Both limits are required; the plugin supplies no defaults. The shared service still applies its own `maxTitleBytes` ceiling when accepting the result, so a `maxBytes` above that ceiling is truncated again there.
 
+<a id="provider-contract"></a>
 ## Provider contract
 
-The plugin owns no state of its own: `apply` registers one provider through `ctx.sessionTitle.register()` with `automatic: 'all-prompts'`, and `generate()` returns the newest eligible message's normalized leading words attributed to that message's exact seq. The service owns supersession, cancellation, normalization, and log acceptance. See the [session-title data structures](../../../docs/subsystems/session-title.md).
+The plugin owns no state of its own: `apply` registers one provider through `ctx.sessionTitle.register()` with `automatic: 'all-prompts'`, and `generate()` returns the newest eligible message's normalized leading words attributed to that message's exact seq. The service owns supersession, cancellation, normalization, and log acceptance.
 
+-----
+
+<a id="further-exploration"></a>
+## Further Exploration
+
+- [Session title subsystem](../../../docs/subsystems/session-title.md) — provider registration, cadence, normalization, and title-event ownership.
+- [Session title service](../session-title/README.md) — the service definition and shared configuration.
+
+-----
+
+<a id="model-experience"></a>
 ## Model Experience
 
 ### Session title state
@@ -37,5 +67,16 @@ None for the main request; title events do not change its reconstructed content 
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - The title is the raw leading words of the newest message, not a summary: a long message yields only its opening phrase, and interleaved assistant or tool content never influences the name.
 - Equality is not deduplicated: pasting the same message twice still renames the session to the same text, appending a new `session/title` event each time.
+
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

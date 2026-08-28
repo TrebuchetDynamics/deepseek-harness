@@ -191,21 +191,18 @@ describe('ui-settings-models apply', () => {
 
   it('loads authenticated remote-browser acknowledgement from the Host', async () => {
     const describe = vi.fn(() => Promise.resolve({
-      rpcId: 'remote-welcome' as never,
-      result: {
-        ok: true as const,
-        value: {
-          writable: true,
-          hasDocument: false,
-          namespaces: [{
-            ns: WELCOME_NOTICE_SETTINGS_NAMESPACE,
-            schema: {},
-            value: {},
-            applies: 'live' as const,
-            secrets: [],
-            revision: 0,
-          }],
-        },
+      ok: true as const,
+      value: {
+        writable: true,
+        hasDocument: false,
+        namespaces: [{
+          ns: WELCOME_NOTICE_SETTINGS_NAMESPACE,
+          schema: {},
+          value: {},
+          applies: 'live' as const,
+          secrets: [],
+          revision: 0,
+        }],
       },
     }))
     const b = await bench(false, { describe })

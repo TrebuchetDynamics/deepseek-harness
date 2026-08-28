@@ -1,11 +1,29 @@
+---
+description: "从最新的合格人类消息确定性派生会话标题的提供方；面向 profile 作者与维护者。"
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-session-title-latest-message
 
 [English](README.md) | 中文
 
-可选的 `ctx.sessionTitle` 提供方：在每次新的可纳入人类消息后，将会话重命名为该消息的前几个词。它注册 `all-prompts` 节奏，并在每个新的人类提示词之后（包括子会话的提示词）启动一个新修订；更新的修订会中止并取代旧的工作。推导完全确定性——不发起任何模型请求——因此重命名只产生一个仅日志的 `session/title` 事件。
+## 概述
 
-与服务的收集规则一致，只有来自人类 `user/message` 事件的文本块符合条件。标题的规范化与内置回退完全一致：空白被折叠、终端控制序列被移除、只保留前 `maxWords` 个词、按 `maxBytes` 截断 UTF-8 且绝不拆分码点。空消息和非文本消息等待后续符合条件的内容；最新的消息总是胜出。
+这个可选的 `ctx.sessionTitle` 提供方会在每次提示后，将会话重命名为最新合格人类消息的前几个词。它注册 `all-prompts` 节奏，并在每个新的人类提示词之后（包括子会话提示词）启动一个新修订；更新的修订会中止并取代旧工作。推导是确定性的，不发起模型请求，因此重命名只产生一个仅日志的 `session/title` 事件。
 
+与服务的收集规则一致，只有来自人类 `user/message` 事件的文本块符合条件。标题的规范化方式与内置回退一致：折叠空白、移除终端控制序列、只保留前 `maxWords` 个词，并按 `maxBytes` 截断 UTF-8 且绝不拆分码点。空消息和非文本消息等待后续合格输入；最新消息总是胜出。
+
+## 目录
+
+- [配置](#configuration)
+- [提供方约定](#provider-contract)
+- [进一步探索](#further-exploration)
+- [模型体验](#model-experience)
+- [已知限制与延期工作](#known-limitations-and-deferred-work)
+
+-----
+
+<a id="configuration"></a>
 ## 配置
 
 | 键 | 约定 |
@@ -15,27 +33,50 @@
 
 两个限制均为必填；本插件不提供默认值。共享服务在接受结果时仍应用自身的 `maxTitleBytes` 上限，因此高于该上限的 `maxBytes` 会在此处被再次截断。
 
+<a id="provider-contract"></a>
 ## 提供方约定
 
-本插件不持有自身状态：`apply` 通过 `ctx.sessionTitle.register()` 注册一个提供方，使用 `automatic: 'all-prompts'`，`generate()` 返回最新符合条件消息的归一化前导词，并将其归属于该消息的确切 seq。覆盖、取消、归一化与日志接受均由服务负责。参见[会话标题数据结构](../../../docs/subsystems/session-title.zh.md)。
+本插件不持有自身状态：`apply` 通过 `ctx.sessionTitle.register()` 注册一个提供方，使用 `automatic: 'all-prompts'`；`generate()` 返回最新合格消息的归一化前导词，并将其归属于该消息的确切 seq。覆盖、取消、归一化与日志接受均由服务负责。
 
+-----
+
+<a id="further-exploration"></a>
+## 进一步探索
+
+- [会话标题子系统](../../../docs/subsystems/session-title.zh.md)——提供方注册、节奏、规范化与标题事件归属。
+- [会话标题服务](../session-title/README.zh.md)——服务定义与共享配置。
+
+-----
+
+<a id="model-experience"></a>
 ## 模型体验
 
 ### 会话标题状态
 
 #### 模型可见内容
 
-无。此提供方不发起任何请求：派生标题只成为仅日志 `session/title` 事件，绝不进入会话表面、`deriveMessages()`、系统提示、工具模式或请求前缀。
+无。此提供方不发起任何请求：派生标题只成为仅日志 `session/title` 事件，绝不进入会话表面、`deriveMessages()`、系统提示、工具 schema 或请求前缀。
 
 #### Token 影响
 
 主代理请求增加零 token，且完全没有辅助请求。
 
-#### KV 缓存影响
+#### KV Cache 影响
 
 对主请求没有影响；标题事件不会改变其重建内容或缓存键。
 
-## 已知限制与待办工作
+## 已知限制与延期工作
+
+<a id="known-limitations-and-deferred-work"></a>
 
 - 标题是最新消息的原始前导词，而非摘要：长消息只呈现开头短语，穿插的助手或工具内容绝不影响名称。
 - 不进行去重：粘贴同一消息两次仍会将会话重命名为相同文本，每次附加新的 `session/title` 事件。
+
+### 开发备注
+
+<details>
+<summary>维护者的工作上下文——点击展开</summary>
+
+无。
+
+</details>

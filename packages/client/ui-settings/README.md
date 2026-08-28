@@ -87,8 +87,9 @@ None, as the package is a browser-side UI plugin layer that registers nothing mo
 
 None; this package neither assembles nor sends a provider request.
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
 
 These limits define where the settings transport cannot reach; they are current package constraints.
 
