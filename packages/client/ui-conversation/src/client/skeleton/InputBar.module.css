@@ -213,6 +213,7 @@
    (figma Input_Bottom chrome). */
 .row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -250,6 +251,7 @@
 .trailing {
   flex: none;
   gap: 12px;
+  margin-left: auto;
 }
 
 /* Attach circle (figma + control): 28px, selector fill, primary glyph. */
