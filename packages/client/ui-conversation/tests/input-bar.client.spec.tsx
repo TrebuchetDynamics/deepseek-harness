@@ -948,6 +948,16 @@ describe('running and lock semantics', () => {
     expect(focused).toEqual([true])
   })
 
+  it('a session switch does not open a coarse-pointer virtual keyboard', () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }))
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    const { view, textarea, props } = bench({ draft: 'line one' })
+    const focus = vi.fn()
+    textarea.focus = focus
+    act(() => { view.rerender(<InputBar {...props} sessionId={'s2' as SessionId} />) })
+    expect(focus).not.toHaveBeenCalled()
+  })
+
   it('a persisted draft adopted after mount does not steal focus from another control', () => {
     const { shell } = bench()
     const other = document.createElement('input')
