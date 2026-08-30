@@ -88,6 +88,8 @@ describe('tool-call-model', () => {
     expect(toolRowModel('bash', result()).state).toBe('ok')
     expect(toolRowModel('bash', result({ isError: true })).state).toBe('error')
     expect(toolRowModel('bash', result({ isError: true, error: { name: 'E', code: 'interrupted' } })).state).toBe('stopped')
+    expect(toolRowModel('bash', result({ isError: true, error: { name: 'E', code: 'TOOL_NOT_STARTED' } })).state).toBe('stopped')
+    expect(toolRowModel('bash', result({ isError: true, error: { name: 'E', code: 'TOOL_OUTCOME_UNKNOWN' } })).state).toBe('stopped')
   })
 
   it('derives the bash summary from description over command', () => {

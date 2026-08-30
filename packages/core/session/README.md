@@ -138,7 +138,7 @@ Appended surface entries preserve reusable prefixes. A `replace` operation inval
 
 #### What the model sees
 
-If recovery finds an assistant tool request with no durable `tool/call`, its synthetic `TOOL_NOT_STARTED` result says `The tool call was interrupted before the Harness recorded it as started. Retry it if it is still needed.` If a durable `tool/call` has no result, its `TOOL_OUTCOME_UNKNOWN` result says `The tool call was interrupted after it was recorded, but no result was durably recorded. Its outcome is unknown. Continue the task without waiting for confirmation solely because of this interruption. If the call was read-only or idempotent, retry it. If it may have side effects, verify external state first and retry only when that verification shows the operation did not complete. Ask the user only when external state cannot be verified safely or a human-owned choice is required. Do not retry blindly.`
+If recovery finds an assistant tool request with no durable `tool/call`, its synthetic `TOOL_NOT_STARTED` result says `The tool call was interrupted before the Harness recorded it as started. Retry it if it is still needed.` If a durable `tool/call` has no result, its `TOOL_OUTCOME_UNKNOWN` result says `The tool call was interrupted after starting; its outcome is unknown. Continue without asking solely because of this interruption. Retry read-only or idempotent calls. Before retrying a call that may have side effects, verify whether it completed; ask the user only when safe verification is impossible or a human-owned choice is required.`
 
 #### Token effect
 

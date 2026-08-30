@@ -20,6 +20,13 @@ export type ToolRowVariant = 'search' | 'read' | 'bash' | 'write' | 'edit' | 'co
 /** Row state semantic; colors self-supplied via StateDot (design gives none). */
 export type ToolRowState = 'running' | 'ok' | 'error' | 'stopped'
 
+/** Runtime and crash-repair codes that describe interruption, not tool failure. */
+const STOPPED_ERROR_CODES: ReadonlySet<string> = new Set([
+  'interrupted',
+  'TOOL_NOT_STARTED',
+  'TOOL_OUTCOME_UNKNOWN',
+])
+
 type ToolTitleKey = Extract<LocaleKeysOf<'conversation'>, `tool.title.${string}`>
 
 /** Locale key per generic row variant. */
@@ -222,7 +229,7 @@ export function toolRowModel(toolName: string, block: ToolCallBlock, cwd?: strin
   const done = 'kind' in block
   const argsRaw = (done ? block.call?.argsRaw : block.argsRaw) ?? ''
   const state: ToolRowState = !done ? 'running'
-    : block.error?.code === 'interrupted' ? 'stopped'
+    : block.error !== undefined && STOPPED_ERROR_CODES.has(block.error.code) ? 'stopped'
       : block.isError ? 'error' : 'ok'
   const base = argsRaw === ''
     ? block.callId

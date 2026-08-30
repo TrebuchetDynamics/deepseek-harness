@@ -105,9 +105,8 @@ describe('semantic checkpoint recovery snapshot', () => {
         if (refreshing) await writeFile(sessionExpected, session)
         expect(session).toBe(await readFile(sessionExpected, 'utf8'))
         expect(session).toContain('TOOL_OUTCOME_UNKNOWN')
-        expect(session).toContain('Continue the task without waiting for confirmation solely because of this interruption.')
-        expect(session).toContain('Ask the user only when external state cannot be verified safely or a human-owned choice is required.')
-        expect(session).toContain('Do not retry blindly.')
+        expect(session).toContain('Continue without asking solely because of this interruption.')
+        expect(session).toContain('ask the user only when safe verification is impossible or a human-owned choice is required.')
       },
     })
 
