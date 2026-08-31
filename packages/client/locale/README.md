@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-client-locale` localizes the web GUI: users choose from the registered languages in Settings → General, and the UI copy switches immediately. The package ships `zh` and `en`, while external client plugins can add languages and their namespace dictionaries. On a loopback page, the choice persists as `locale.preference` in `$DSH_HOME/settings.yaml`; a non-loopback page keeps its selection process-local even though Connection authenticates every API method. A fresh browser starts provisionally in the first registered language requested by `navigator` until an allowed Host preference arrives and replaces it live. Plugin authors receive full type checking for the built-in dictionary form and translate through the framework `t` seat; copy rendered through slots follows language switches without a reload.
+`dsh-client-locale` localizes the web GUI: users choose from the registered languages in Settings → General, and the UI copy switches immediately. The package ships `zh` and `en`, while external client plugins can add languages and their namespace dictionaries. When the Host authorizes settings access, the choice persists as `locale.preference` in `$DSH_HOME/settings.yaml`. A fresh browser starts provisionally in the first registered language requested by `navigator` until an allowed Host preference arrives and replaces it live. Plugin authors receive full type checking for the built-in dictionary form and translate through the framework `t` seat; copy rendered through slots follows language switches without a reload.
 
 ## Table of Contents
 
@@ -61,7 +61,7 @@ An external id is a non-empty ASCII BCP 47-style tag. Its fallback must already 
 
 ### What the Host half does
 
-The Host persists the preference through the settings service on loopback pages. The Client deliberately withholds that settings scope on non-loopback pages, so their locale selection remains process-local even though Connection authenticates every API method.
+The Client always requests the Host-backed settings scope. The Host authorizes each request and persists approved preferences through the settings service; rejected access leaves the browser's provisional locale active.
 
 -----
 
@@ -104,7 +104,7 @@ The typed object form requires complete dictionaries for both built-in locales. 
 Read these when the locale contract is not enough: the slot face it implements, the settings surface it rides, and the persistence decision behind the preference.
 
 - [Client slot system](../ui-slots/README.md) — the slot model and the `LocaleFace` seat this package implements.
-- [Host-backed preferences decision](../../../.agents/notes/implemented/bug-fix/2026-08-06-host-backed-web-preferences.md) — why the preference persists in Host settings instead of the browser.
+- [Authenticated remote settings decision](../../../.agents/notes/implemented/bug-fix/2026-08-20-authenticated-remote-settings.md) — why every browser defers settings authorization to the Host.
 - [Settings group map](../../settings/README.md) — the settings service that stores the preference.
 - [Client group map](../README.md) — the browser half this package belongs to.
 
