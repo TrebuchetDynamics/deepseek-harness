@@ -74,6 +74,11 @@ async function typeDraft(page: Page, rows: readonly string[]): Promise<void> {
 }
 
 /** The composer's scroll surface as the browser lays it out. */
+interface MobileComposerLayout {
+  cardInsideViewport: boolean
+  cardHasHorizontalOverflow: boolean
+}
+
 interface ComposerMetrics {
   /** True when the draft is taller than the capped box — the situation under test. */
   overflows: boolean
@@ -136,6 +141,20 @@ function measureComposer(page: Page): Promise<ComposerMetrics> {
   }, { first: FIRST_MARKER, last: LAST_MARKER })
 }
 
+/** Measure whether the whole mobile composer stays inside its short viewport. */
+function measureMobileLayout(page: Page): Promise<MobileComposerLayout> {
+  return page.evaluate(() => {
+    const card = document.querySelector<HTMLElement>('[data-composer-card]')
+    if (card === null) throw new Error('no composer card in the DOM')
+    const box = card.getBoundingClientRect()
+    return {
+      cardInsideViewport: box.left >= 0 && box.top >= 0
+        && box.right <= window.innerWidth && box.bottom <= window.innerHeight,
+      cardHasHorizontalOverflow: card.scrollWidth > card.clientWidth,
+    }
+  })
+}
+
 /**
  * Render the golden body.
  *
@@ -152,7 +171,12 @@ function measureComposer(page: Page): Promise<ComposerMetrics> {
  * @returns the golden body, without a trailing newline.
  */
 function renderGeometry(
-  top: ComposerMetrics, bottom: ComposerMetrics, trailingNewline: ComposerMetrics, pasted: ComposerMetrics,
+  top: ComposerMetrics,
+  bottom: ComposerMetrics,
+  trailingNewline: ComposerMetrics,
+  pasted: ComposerMetrics,
+  mobile: ComposerMetrics,
+  mobileLayout: MobileComposerLayout,
 ): string {
   return [
     '# Composer draft scrolling (14-line cap, one editable surface, one scrollport)',
@@ -185,6 +209,14 @@ function renderGeometry(
     `- the pasted block's last line is on screen: ${String(
       pasted.lastLineOffset >= 0 && pasted.lastLineOffset < pasted.clientHeight,
     )}`,
+    '',
+    '## Mobile viewport with the virtual-keyboard-sized height',
+    '',
+    `- draft overflows the capped box: ${String(mobile.overflows)}`,
+    `- visible lines: ${String(mobile.visibleLines)}`,
+    `- the surface holds no scroll offset of its own: ${String(mobile.surfaceScrollable === 0)}`,
+    `- the card stays inside the viewport: ${String(mobileLayout.cardInsideViewport)}`,
+    `- the card has horizontal overflow: ${String(mobileLayout.cardHasHorizontalOverflow)}`,
   ].join('\n').trimEnd()
 }
 
@@ -321,7 +353,35 @@ describe('web e2e: composer draft scrolling', () => {
     await expect.poll(async () => (await measureComposer(page)).overflows, { timeout: 10_000 }).toBe(true)
     await expect.poll(async () => (await measureComposer(page)).scrollTop, { timeout: 10_000 }).toBeGreaterThan(0)
     const pasted = await measureComposer(page)
-    await compareOrRefreshGolden(GEOMETRY_EXPECTED, renderGeometry(top, bottom, trailingNewline, pasted), MODE)
+    // A mobile browser with its virtual keyboard open leaves a short dynamic
+    // viewport. Boot at that size so this measures the real collapsed-sidebar
+    // layout rather than a desktop drawer midway through its responsive move.
+    const mobilePage = await newEnglishPage(browser, 430)
+    const mobileTripwire = watchConsole(mobilePage)
+    let mobile: ComposerMetrics
+    let mobileLayout: MobileComposerLayout
+    try {
+      await mobilePage.setViewportSize({ width: 390, height: 430 })
+      await mobilePage.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+      await mobilePage.locator('[data-sidebar-collapsed="true"]').waitFor({ timeout: 30_000 })
+      await mobilePage.locator('[data-composer-input][contenteditable="true"]').waitFor({ timeout: 30_000 })
+      await typeDraft(mobilePage, DRAFT_ROWS)
+      mobile = await measureComposer(mobilePage)
+      mobileLayout = await measureMobileLayout(mobilePage)
+      expect(mobile.overflows).toBe(true)
+      expect(mobile.visibleLines).toBeLessThanOrEqual(5)
+      expect(mobile.surfaceScrollable).toBe(0)
+      expect(mobileLayout.cardInsideViewport).toBe(true)
+      expect(mobileLayout.cardHasHorizontalOverflow).toBe(false)
+      expect(mobileTripwire.pageErrors).toEqual([])
+    } finally {
+      await mobilePage.close()
+    }
+    await compareOrRefreshGolden(
+      GEOMETRY_EXPECTED,
+      renderGeometry(top, bottom, trailingNewline, pasted, mobile, mobileLayout),
+      MODE,
+    )
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 

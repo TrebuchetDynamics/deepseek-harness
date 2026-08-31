@@ -61,6 +61,9 @@ describe('web e2e: approval takeover keeps its actions reachable', () => {
     const input = page.locator('[data-composer-input]').first()
     await input.waitFor({ timeout: 10_000 })
 
+    // Measure and exercise the takeover on the same narrow-width cap. The
+    // mobile override is shared by the draft and approval scroll regions.
+    await page.setViewportSize({ width: 900, height: 1000 })
     // Derive the expected cap from the live composer instead of duplicating its pixel value.
     await input.fill(CAP_PROBE)
     const composerCap = await input.evaluate(el => el.closest('[data-input-scroll]')?.clientHeight ?? 0)

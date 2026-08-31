@@ -455,6 +455,12 @@
    composer card's narrow width; wrap so the preset chip drops to its own
    line instead of clipping at the non-broken viewport edge. */
 @media (max-width: 1023px) {
+  .composerSeat {
+    /* The virtual keyboard can leave less than half of a portrait viewport.
+       Keep 3–6 draft lines visible and let the draft scroll inside the card. */
+    --dsh-composer-text-max-height: clamp(72px, 24dvh, 144px);
+  }
+
   .heroWorkspaceRow {
     flex-wrap: wrap;
     row-gap: 8px;

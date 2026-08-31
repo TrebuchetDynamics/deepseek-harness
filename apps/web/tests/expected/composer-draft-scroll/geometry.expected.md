@@ -24,3 +24,11 @@
 
 - the composer scrolled to the caret it left: true
 - the pasted block's last line is on screen: true
+
+## Mobile viewport with the virtual-keyboard-sized height
+
+- draft overflows the capped box: true
+- visible lines: 4
+- the surface holds no scroll offset of its own: true
+- the card stays inside the viewport: true
+- the card has horizontal overflow: false
