@@ -10,9 +10,9 @@
 
 `dsh web` 绑定 `127.0.0.1`，因为它的 API 可以执行工具和 shell 命令。Docker 组合保留这项限制，不发布容器端口，也不把应用绑定到网络接口。
 
-宿主模式包含三跳：宿主 Tailscale Serve 终止 tailnet HTTPS，只有回环地址可访问的 Caddy 代理授权来自一个 Tailscale 登录的配置请求，容器化 Harness 则监听另一个回环端口。Tailscale Serve 会剥除客户端提供的身份头，并提供已认证的 `Tailscale-User-Login`；Caddy 保留浏览器 authority，仅为已配置属主转发特权 RPC 路径，并对访问相同路径的其他身份返回 403。其他请求保留 tailnet authority，并继续经过 Harness 浏览器信任与会话认证检查。
+宿主模式包含三跳：宿主 Tailscale Serve 终止 tailnet HTTPS，只有回环地址可访问的 Caddy 代理授权来自一个 Tailscale 登录的 API 请求，容器化 Harness 则监听另一个回环端口。Tailscale Serve 会剥除客户端提供的身份头，并提供已认证的 `Tailscale-User-Login`；Caddy 保留浏览器 authority，为已配置属主转发完整的 `/api/*` 命名空间，并对其他身份返回 403。静态资源与应用路由保留 tailnet authority，并继续经过 Harness 浏览器信任与会话认证检查。
 
-Harness 的 `--trusted-host` 选项是 DNS rebinding 与跨站栅栏，而不是认证机制。tailnet ACL 控制 GUI 访问。Caddy 规则把设置、凭据、模型发现、preset 管理、原生宿主操作和 Remote SSH 限制给 `TAILSCALE_OWNER`，但所有获准访问 GUI 的 tailnet 用户都能通过普通 agent 工具操作已挂载的宿主文件。
+Harness 的 `--trusted-host` 选项是 DNS rebinding 与跨站栅栏，而不是认证机制。tailnet ACL 控制静态 GUI 资源的访问。Caddy 规则把完整 Host API（包括会话、已安装工具与插件、设置、原生宿主操作和 Remote SSH）限制给 `TAILSCALE_OWNER`。
 
 ## 文件
 
@@ -21,7 +21,7 @@ Harness 的 `--trusted-host` 选项是 DNS rebinding 与跨站栅栏，而不是
 | `../Dockerfile`      | 包含已发布 `@deepseek-ai/dsh` CLI 的运行时镜像                          |
 | `dsh-entrypoint.sh`  | 启动 `dsh web`、暴露已挂载工具链，并可选择加入由容器持有的 tailnet 节点 |
 | `docker-compose.yml` | 宿主网络组合、宿主开发环境挂载、USB 访问和代理                          |
-| `../deployment/Caddyfile` | 为仅限属主的配置 RPC 提供共享回环身份代理                           |
+| `../deployment/Caddyfile` | 为仅限属主的 Host API 提供共享回环身份代理                           |
 | `../run-docker.sh`   | 发现宿主工具链、构建、启动、检查并发布组合                              |
 | `../.dockerignore`   | 排除不需要的构建上下文文件                                              |
 | `browser-e2e/`       | Web 浏览器 e2e 车道（`pnpm run test:web`）的可重现 Chromium 运行时      |
@@ -70,7 +70,7 @@ export DEEPSEEK_API_KEY=sk-...   # optional until a model request
 ./run-docker.sh
 ```
 
-启动器安装并构建挂载的检出，从已发现的工具链推导 `DSH_HOST_FLUTTER_HOME`、`DSH_HOST_ANDROID_HOME` 与 `DSH_HOST_JAVA_HOME`（并打印一行摘要），从 `tailscale status` 读取宿主的 MagicDNS 名称、tailnet IPv4 与登录，构建镜像并启动两个回环服务。它从当前容器日志提取进程启动 URL，通过 Caddy 交换令牌，再使用所得浏览器 cookie 验证无关登录收到 HTTP 403、属主收到 HTTP 200。它在 Harness 浏览器信任栅栏中同时信任 MagicDNS 名称与 tailnet IPv4，仅在这些检查通过后发布 Tailscale HTTPS，并打印一次公开启动 URL。
+启动器安装并构建挂载的检出，从已发现的工具链推导 `DSH_HOST_FLUTTER_HOME`、`DSH_HOST_ANDROID_HOME` 与 `DSH_HOST_JAVA_HOME`（并打印一行摘要），从 `tailscale status` 读取宿主的 MagicDNS 名称、tailnet IPv4 与登录，构建镜像并启动两个回环服务。它从当前容器日志提取进程启动 URL，通过 Caddy 交换令牌，再使用所得浏览器 cookie 验证完整 API 命名空间拒绝无关登录并允许属主，以及已挂载的设置端点返回 HTTP 200。它在 Harness 浏览器信任栅栏中同时信任 MagicDNS 名称与 tailnet IPv4，仅在这些检查通过后发布 Tailscale HTTPS，并打印一次公开启动 URL。
 
 可选的 `@linxin666/dsh-client-ui-task-board` 使用额外代理令牌保护控制路由。将其聚合行配置为接受启动器的受信 authority；启动器生成令牌并仅交给 Host 与 Caddy，Caddy 只在匹配 `TAILSCALE_OWNER` 后注入该令牌：
 
@@ -150,5 +150,4 @@ Docker 工具位于产品包之外，因此上游合并通常只有很小的冲�
 ## 限制
 
 - 镜像运行 `DSH_VERSION` 对应的已发布包，而不是当前 monorepo 源码。
-- 新增仅限属主的 API 方法或 namespace 必须同时加入两个 Caddy 敏感路径 matcher；遗漏时，tailnet ACL 允许的任何浏览器会话都能使用它。
 - 宿主模式有意针对单台机器配置，并授予容器对宿主 home 的读写访问。启动器选择 Docker 且未显式关闭时，agent 可通过 daemon 挂载或修改任意宿主路径，因此拥有等同于宿主 root 的权限。仅允许你信任其使用已启用权限的 tailnet 身份访问 GUI。

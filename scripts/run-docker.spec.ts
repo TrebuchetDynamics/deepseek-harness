@@ -27,17 +27,21 @@ describe('Docker Tailscale proxy', () => {
   it('preserves browser authority for owner APIs and denies other identities', () => {
     const config = readFileSync(caddyfile, 'utf8')
     const ownerMatcher = config.slice(
-      config.indexOf('@owner_sensitive'),
-      config.indexOf('handle @owner_sensitive'),
+      config.indexOf('@owner_api'),
+      config.indexOf('handle @owner_api'),
     )
     const ownerProxy = config.slice(
-      config.indexOf('handle @owner_sensitive'),
-      config.indexOf('@sensitive'),
+      config.indexOf('handle @owner_api'),
+      config.indexOf('@api'),
     )
-    expect(ownerMatcher).toContain('/api/settings/*')
-    expect(ownerMatcher).toContain('/api/dsh-ssh/*')
+    expect(config).toContain('@owner_index_without_cookie')
+    expect(config).toContain(
+      'rewrite * /?token={$DSH_BROWSER_LAUNCH_TOKEN}',
+    )
+    expect(ownerMatcher).toContain('path /api /api/*')
+    expect(ownerMatcher).not.toContain('/api/settings/*')
     expect(ownerProxy).not.toContain('header_up Host 127.0.0.1')
-    expect(config).toContain('handle @sensitive {\n\t\trespond 403')
+    expect(config).toContain('handle @api {\n\t\trespond 403')
   })
 
   it('treats token-protected root responses as container readiness', () => {
@@ -176,6 +180,8 @@ esac`,
     done
     printf 303
     ;;
+  *__dsh_api_namespace_probe__*unauthorized@example.invalid*) printf 403 ;;
+  *__dsh_api_namespace_probe__*owner@example.test*) printf 404 ;;
   *unauthorized@example.invalid*) printf 403 ;;
   *owner@example.test*) printf 200 ;;
 esac`,
@@ -190,6 +196,7 @@ esac`,
         CALLS: calls,
         CHECKOUT: checkout,
         DSH_REPO: checkout,
+        TAILSCALE_OWNER: 'owner@example.test',
         DSH_HOST_USER_HOME: home,
         DSH_HOST_WORKSPACE: join(home, 'git'),
         DSH_HOST_FLUTTER_HOME: join(root, 'missing-flutter'),
@@ -367,6 +374,8 @@ esac`,
     done
     printf 303
     ;;
+  *__dsh_api_namespace_probe__*unauthorized@example.invalid*) printf 403 ;;
+  *__dsh_api_namespace_probe__*owner@example.test*) printf 404 ;;
   *unauthorized@example.invalid*) printf 403 ;;
   *owner@example.test*) printf 200 ;;
 esac`,
@@ -388,6 +397,7 @@ esac`,
             OVERRIDE_CAPTURE: overrideCapture,
             DOCKER_HOST: `unix://${socket}`,
             DSH_REPO: checkout,
+            TAILSCALE_OWNER: 'owner@example.test',
             DSH_HOST_USER_HOME: home,
             DSH_HOST_WORKSPACE: join(home, 'git'),
             DSH_HOST_FLUTTER_HOME: join(root, 'missing-flutter'),

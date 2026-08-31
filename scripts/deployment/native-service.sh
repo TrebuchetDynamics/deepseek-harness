@@ -719,7 +719,7 @@ native_install() {
     fi
     return 1
   fi
-  native_show_urls 1
+  native_show_urls
   echo "Installed persistent $DSH_SERVICE_NAME; it continues in the background."
   echo "This command is complete. Use './start.sh status' or './start.sh logs' to inspect it."
 }
@@ -789,20 +789,8 @@ native_as_root() {
 
 native_show_urls() {
   dsh_load_tailscale_identity
-  local include_launch_token="${1:-0}" public_url="https://$DSH_MAGICDNS/" launch_url token
+  local public_url="https://$DSH_MAGICDNS/"
   [ "${DSH_HTTPS_PORT:-443}" = 443 ] || public_url="https://$DSH_MAGICDNS:${DSH_HTTPS_PORT}/"
-  if [ "$include_launch_token" = 1 ]; then
-    IFS= read -r launch_url <"$DSH_SERVICE_RUNTIME_DIR/backend-url" || {
-      dsh_die "cannot read the active Harness launch URL"
-      return 1
-    }
-    token="${launch_url#*\?token=}"
-    [[ "$launch_url" =~ ^http://127\.0\.0\.1:[0-9]+/\?token=[A-Za-z0-9_-]+$ && "$token" =~ ^[A-Za-z0-9_-]+$ ]] || {
-      dsh_die "the active Harness launch URL is malformed"
-      return 1
-    }
-    public_url="${public_url}?token=$token"
-  fi
   echo "Web UI: $public_url"
   echo "Local proxy: http://127.0.0.1:${DSH_PUBLIC_PORT:-4080}/"
 }
@@ -934,7 +922,8 @@ dsh_wait_file_process() {
 
 # Wait for a URL that is not owned by a directly observable child process.
 dsh_wait_url() {
-  local url="$1" timeout="$2" subject="$3" deadline="${4:-$((SECONDS + 10#$timeout))}" report_url="${5:-$url}"
+  local url="$1" timeout="$2" subject="$3" deadline="${4:-$((SECONDS + 10#$timeout))}"
+  local report_url="${5:-$url}"
   while (( SECONDS < deadline )); do
     curl -fsS --max-time 1 -o /dev/null "$url" 2>/dev/null && return 0
     sleep 1
@@ -1055,17 +1044,6 @@ BACKEND
     setsid "$login_shell" -lc 'exec bash "$DSH_BACKEND_LAUNCHER"' &
   backend_pid=$!
 
-  NOTIFY_SOCKET= \
-    HOME="$service_home" \
-    USER="$service_user" \
-    DSH_CADDY_CONFIG="$runtime_root/deployment/Caddyfile" \
-    DSH_TASK_BOARD_PROXY_TOKEN="$token" \
-    DSH_BACKEND_PORT="$DSH_BACKEND_PORT" \
-    DSH_PUBLIC_PORT="$DSH_PUBLIC_PORT" \
-    TAILSCALE_OWNER="$configured_owner" \
-    setsid "$login_shell" -lc 'exec caddy run --config "$DSH_CADDY_CONFIG" --adapter caddyfile' &
-  caddy_pid=$!
-
   local public_url="https://$DSH_MAGICDNS/"
   [ "$DSH_HTTPS_PORT" = 443 ] || public_url="https://$DSH_MAGICDNS:$DSH_HTTPS_PORT/"
 
@@ -1075,6 +1053,17 @@ BACKEND
     dsh_wait_file_process "$backend_pid" "$backend_url_file" "$DSH_STARTUP_TIMEOUT" "Harness backend" "$startup_deadline" || return $?
     IFS= read -r launch_url <"$backend_url_file"
     launch_token="${launch_url#*\?token=}"
+    NOTIFY_SOCKET= \
+      HOME="$service_home" \
+      USER="$service_user" \
+      DSH_CADDY_CONFIG="$runtime_root/deployment/Caddyfile" \
+      DSH_BROWSER_LAUNCH_TOKEN="$launch_token" \
+      DSH_TASK_BOARD_PROXY_TOKEN="$token" \
+      DSH_BACKEND_PORT="$DSH_BACKEND_PORT" \
+      DSH_PUBLIC_PORT="$DSH_PUBLIC_PORT" \
+      TAILSCALE_OWNER="$configured_owner" \
+      setsid "$login_shell" -lc 'exec caddy run --config "$DSH_CADDY_CONFIG" --adapter caddyfile' &
+    caddy_pid=$!
     systemd-notify --status="Waiting for the Caddy identity proxy" 2>/dev/null || true
     dsh_wait_http_process "$caddy_pid" "http://127.0.0.1:$DSH_PUBLIC_PORT/" "$DSH_STARTUP_TIMEOUT" "Caddy proxy" "$startup_deadline" || return $?
     systemd-notify --status="Checking owner-only proxy authorization" 2>/dev/null || true
@@ -1085,7 +1074,7 @@ BACKEND
       return 1
     }
     serve_published=1
-    dsh_wait_url "${public_url}?token=$launch_token" "$DSH_STARTUP_TIMEOUT" "Tailscale HTTPS" "$startup_deadline" "$public_url" || return $?
+    dsh_wait_url "$public_url" "$DSH_STARTUP_TIMEOUT" "Tailscale HTTPS" "$startup_deadline" || return $?
     kill -0 "$backend_pid" 2>/dev/null || {
       dsh_die "Harness backend exited before service readiness"
       return 1

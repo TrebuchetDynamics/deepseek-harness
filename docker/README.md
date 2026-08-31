@@ -10,9 +10,9 @@ For direct access to every tool and credential in the user's login environment, 
 
 `dsh web` binds `127.0.0.1` because its API can execute tools and shell commands. The Docker composition preserves that restriction instead of publishing a container port or binding the application to a network interface.
 
-Host mode uses three hops: host Tailscale Serve terminates tailnet HTTPS, a loopback-only Caddy proxy authorizes configuration requests from one Tailscale login, and the containerized Harness listens on a second loopback port. Tailscale Serve strips client-supplied identity headers and supplies the authenticated `Tailscale-User-Login`; Caddy preserves the browser authority and forwards privileged RPC paths for the configured owner, while the same paths return 403 for other identities. Other requests retain the tailnet authority and continue through the Harness browser-trust and session-authentication checks.
+Host mode uses three hops: host Tailscale Serve terminates tailnet HTTPS, a loopback-only Caddy proxy authorizes API requests from one Tailscale login, and the containerized Harness listens on a second loopback port. Tailscale Serve strips client-supplied identity headers and supplies the authenticated `Tailscale-User-Login`; Caddy preserves the browser authority, forwards the complete `/api/*` namespace for the configured owner, and returns 403 for other identities. Static assets and application routes retain the tailnet authority and continue through the Harness browser-trust and session-authentication checks.
 
-The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not authentication. Tailnet ACLs control access to the GUI. The Caddy rule limits settings, credentials, model discovery, preset management, native host operations, and Remote SSH to `TAILSCALE_OWNER`, but any tailnet user allowed to reach the GUI can run ordinary agent tools against the mounted host files.
+The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not authentication. Tailnet ACLs control access to static GUI assets. The Caddy rule limits the complete Host API—including sessions, installed tools and plugins, settings, native host operations, and Remote SSH—to `TAILSCALE_OWNER`.
 
 ## Files
 
@@ -21,7 +21,7 @@ The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not
 | `../Dockerfile`      | Runtime image containing the published `@deepseek-ai/dsh` CLI                                     |
 | `dsh-entrypoint.sh`  | Starts `dsh web`, exposes mounted toolchains, and optionally joins a container-owned tailnet node |
 | `docker-compose.yml` | Host-network composition, host development mounts, USB access, and proxy                          |
-| `../deployment/Caddyfile` | Shared loopback identity proxy for owner-only configuration RPCs                              |
+| `../deployment/Caddyfile` | Shared loopback identity proxy for the owner-only Host API                                    |
 | `../run-docker.sh`   | Discovers host toolchains, builds, starts, verifies, and publishes the composition                |
 | `../.dockerignore`   | Excludes unnecessary build-context files                                                          |
 | `browser-e2e/`       | Reproducible Chromium runtime for the web browser e2e lane (`pnpm run test:web`)                  |
@@ -70,7 +70,7 @@ export DEEPSEEK_API_KEY=sk-...   # optional until a model request
 ./run-docker.sh
 ```
 
-The launcher installs and builds the mounted checkout, derives `DSH_HOST_FLUTTER_HOME`, `DSH_HOST_ANDROID_HOME`, and `DSH_HOST_JAVA_HOME` from the discovered toolchains (printing one summary line), reads the host's MagicDNS name, tailnet IPv4, and login from `tailscale status`, builds the image, and starts both loopback services. It extracts the process launch URL from the current container log, exchanges the token through Caddy, then verifies with the resulting browser cookie that an unrelated login receives HTTP 403 while the owner receives HTTP 200. It trusts the MagicDNS name and tailnet IPv4 at the Harness browser-trust fences, publishes Tailscale HTTPS only after those checks pass, and prints the public launch URL once.
+The launcher installs and builds the mounted checkout, derives `DSH_HOST_FLUTTER_HOME`, `DSH_HOST_ANDROID_HOME`, and `DSH_HOST_JAVA_HOME` from the discovered toolchains (printing one summary line), reads the host's MagicDNS name, tailnet IPv4, and login from `tailscale status`, builds the image, and starts both loopback services. It extracts the process launch URL from the current container log, exchanges the token through Caddy, then verifies with the resulting browser cookie that the complete API namespace denies an unrelated login and admits the owner, and that a mounted settings endpoint returns HTTP 200. It trusts the MagicDNS name and tailnet IPv4 at the Harness browser-trust fences, publishes Tailscale HTTPS only after those checks pass, and prints the public launch URL once.
 
 The optional `@linxin666/dsh-client-ui-task-board` keeps its control routes behind an additional proxy token. Configure its aggregate row to admit the launcher's trusted authorities; the launcher generates the token and gives it only to the Host and Caddy, which injects it after matching `TAILSCALE_OWNER`:
 
@@ -150,5 +150,4 @@ The Docker utility stays outside product packages so upstream merges normally ha
 ## Limitations
 
 - The image runs the published packages at `DSH_VERSION`, not the current monorepo source.
-- A new owner-only API method or namespace must be added to both Caddy sensitive-path matchers; omission leaves it available to any browser session admitted by the tailnet ACL.
 - Host mode is intentionally machine-specific and grants the container read-write access to the host home. When the launcher selects Docker and it is not explicitly disabled, agents can mount or modify any host path through the daemon and therefore have host-root-equivalent authority. Restrict GUI reachability to tailnet identities trusted for the enabled access.

@@ -15,6 +15,22 @@
 	}
 	header @versioned_bundle >Cache-Control "public, max-age=31536000, immutable"
 
+	# Native service mode keeps the launch token in Caddy's environment and uses
+	# the Serve-injected owner identity to establish a browser session.
+	@owner_index_without_cookie {
+		expression `{env.DSH_BROWSER_LAUNCH_TOKEN} != ""`
+		header Tailscale-User-Login {$TAILSCALE_OWNER}
+		path /
+		not header_regexp Cookie dsh-auth-
+	}
+
+	handle @owner_index_without_cookie {
+		rewrite * /?token={$DSH_BROWSER_LAUNCH_TOKEN}
+		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
+			header_up Host {http.request.host}
+		}
+	}
+
 	@owner_task_board {
 		header Tailscale-User-Login {$TAILSCALE_OWNER}
 		path /api/task-board/*
@@ -27,26 +43,29 @@
 		}
 	}
 
-	@owner_sensitive {
+	# The complete Host API is owner-only. Matching the namespace instead of an
+	# endpoint allowlist keeps newly installed tools and plugin routes reachable.
+	@owner_api {
 		header Tailscale-User-Login {$TAILSCALE_OWNER}
-		path /api/settings/* /api/credentials/* /api/llm/listProviders /api/llm/listConfigurableProviders /api/llm/discoverModels /api/agentPreset/read /api/agentPreset/copy /api/agentPreset/openDocument /api/agentPreset/remove /api/host/pickDirectory /api/host/openPath /api/dsh-skill-explorer/* /api/dsh-ssh/*
+		path /api /api/*
 	}
 
-	handle @owner_sensitive {
+	handle @owner_api {
 		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
 			header_up Host {http.request.host}
+			header_up -X-Dsh-Task-Board-Proxy-Token
 		}
 	}
 
-	@sensitive {
-		path /api/settings/* /api/credentials/* /api/llm/listProviders /api/llm/listConfigurableProviders /api/llm/discoverModels /api/agentPreset/read /api/agentPreset/copy /api/agentPreset/openDocument /api/agentPreset/remove /api/host/pickDirectory /api/host/openPath /api/task-board/* /api/dsh-skill-explorer/* /api/dsh-ssh/*
+	@api {
+		path /api /api/*
 	}
-	handle @sensitive {
+	handle @api {
 		respond 403
 	}
 
-	# Preserve upstream's remote restrictions for every request not carrying the
-	# configured owner's Serve-injected identity.
+	# Static assets and application routes remain available to the tailnet; the
+	# Host still requires its authority-bound browser cookie for protected data.
 	handle {
 		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
 			header_up Host {http.request.host}

@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-浏览器设置始终使用 Host transport。Connection 使用进程启动令牌交换所得、绑定 authority 的浏览器 cookie 来认证完整 Host API。Tailscale Caddy matcher 为配置 namespace 与已集成的仅限属主插件路由保留浏览器 `Host` 和 `Origin`，只为 `TAILSCALE_OWNER` 转发这些路径，并在 fallback 代理之前对其他身份返回 403。trusted host 仍用于 DNS rebinding 与跨站检查，而不代表用户身份。
+浏览器设置始终使用 Host transport。Connection 使用绑定 authority 的浏览器 cookie 认证完整 Host API。在原生 Tailscale 部署中，Caddy 会针对属主没有 Harness cookie 的干净根路径请求自动执行进程启动令牌交换，并且不把令牌放入浏览器 URL。Caddy 保留浏览器 `Host` 和 `Origin`，为 `TAILSCALE_OWNER` 转发完整的 `/api/*` 命名空间，并对其他身份返回 403。该命名空间规则无需维护第二套路由目录，即可允许当前与未来的工具和插件端点。trusted host 仍用于 DNS rebinding 与跨站检查，而不代表用户身份。
 
 Task Board 保留自身的代理防护，而不接收 loopback 改写。启动器生成新的随机令牌，仅与 Host 和 Caddy 容器共享；Caddy 只在匹配 `TAILSCALE_OWNER` 后注入该令牌，fallback 代理会移除客户端提供的同名令牌。Caddy 保留浏览器 authority 与请求标记；尤其不会为同源 GET 请求合成空的 `Origin`，这类请求以 `Sec-Fetch-Site: same-origin` 作为浏览器证明。
 
@@ -26,4 +26,4 @@ Task Board 保留自身的代理防护，而不接收 loopback 改写。启动�
 
 ## 后果
 
-经过一次浏览器启动令牌交换后，已认证的 Tailscale 属主可以加载 Models、持久设置页面和明确集成的属主控制。其他 tailnet 身份即使持有有效 Harness 浏览器会话，在敏感路径前缀上仍会收到 403。聚焦测试固定当前路径前缀、浏览器 authority 保留、启动令牌交换，以及属主 200 与非属主 403 探测。
+Caddy 自动建立 Harness 浏览器会话后，已认证的 Tailscale 属主可以使用完整 Host API，包括新安装的工具和插件。其他 tailnet 身份即使持有有效 Harness 浏览器会话，在整个 `/api/*` 命名空间中仍会收到 403。聚焦测试固定命名空间级路由、浏览器 authority 保留、无令牌属主会话建立，以及属主 200 与非属主 403 探测。

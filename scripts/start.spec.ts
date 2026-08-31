@@ -48,7 +48,7 @@ function createRuntimeFixture(): RuntimeFixture {
   )
   executable(
     join(bin, 'caddy'),
-    'printf "caddy start\\n" >> "$CALLS"\n[ -z "${NOTIFY_SOCKET:-}" ] || printf "caddy inherited notify\\n" >> "$CALLS"\n[ "${CADDY_EXIT:-0}" = 0 ] || exit 7\ntrap \'printf "caddy TERM\\n" >> "$CALLS"; exit 0\' TERM INT\nwhile :; do sleep 1; done',
+    'printf "caddy start token=%s\\n" "${DSH_BROWSER_LAUNCH_TOKEN:-missing}" >> "$CALLS"\n[ -z "${NOTIFY_SOCKET:-}" ] || printf "caddy inherited notify\\n" >> "$CALLS"\n[ "${CADDY_EXIT:-0}" = 0 ] || exit 7\ntrap \'printf "caddy TERM\\n" >> "$CALLS"; exit 0\' TERM INT\nwhile :; do sleep 1; done',
   )
   executable(
     join(bin, 'tailscale'),
@@ -68,6 +68,8 @@ esac`,
     done
     printf 303
     ;;
+  *__dsh_api_namespace_probe__*unauthorized@example.invalid*) printf '%s' "\${SCOPE_DENIED_STATUS:-403}" ;;
+  *__dsh_api_namespace_probe__*owner@example.test*) printf '%s' "\${SCOPE_OWNER_STATUS:-404}" ;;
   *unauthorized@example.invalid*) printf 403 ;;
   *owner@example.test*)
     if [ "\${OWNER_404_ONCE:-0}" = 1 ] && [ ! -e "$CALLS.owner-404" ]; then
@@ -419,9 +421,8 @@ describe('native Harness service installation', () => {
       expect(readFileSync(fixture.calls, 'utf8')).toContain(
         'systemctl enable --now deepseek-harness.service',
       )
-      expect(result.stdout).toContain(
-        'Web UI: https://host.tail.test/?token=fixture-token',
-      )
+      expect(result.stdout).toContain('Web UI: https://host.tail.test/')
+      expect(result.stdout).not.toContain('?token=fixture-token')
       expect(result.stdout).toContain(
         'Installed persistent deepseek-harness.service; it continues in the background.',
       )
@@ -715,15 +716,16 @@ describe('native Harness service installation', () => {
       ).toContain(
         `ExecStart="${fixture.systemRoot}/usr/local/libexec/deepseek-harness/start.sh" __service`,
       )
-      expect(
-        readFileSync(
-          join(
-            fixture.systemRoot,
-            'usr/local/libexec/deepseek-harness/deployment/Caddyfile',
-          ),
-          'utf8',
+      const installedCaddy = readFileSync(
+        join(
+          fixture.systemRoot,
+          'usr/local/libexec/deepseek-harness/deployment/Caddyfile',
         ),
-      ).toContain('@owner_sensitive')
+        'utf8',
+      )
+      expect(installedCaddy).toContain('@owner_api')
+      expect(installedCaddy).toContain('path /api /api/*')
+      expect(installedCaddy).toContain('not header_regexp Cookie dsh-auth-')
       expect(
         readFileSync(
           join(fixture.systemRoot, 'etc/deepseek-harness.env'),
@@ -1163,7 +1165,7 @@ describe('native Harness service installation', () => {
 
 describe('native Harness runtime', () => {
   it.runIf(process.platform === 'linux')(
-    'reports ready only after both identity probes pass',
+    'reports ready only after identity and API namespace probes pass',
     async () => {
       const fixture = createRuntimeFixture()
       const child = spawnRuntime(fixture)
@@ -1178,12 +1180,34 @@ describe('native Harness runtime', () => {
         expect(log).toContain(
           'tailscale serve --yes --bg --https=443 http://127.0.0.1:4080',
         )
+        expect(log).toContain('caddy start token=fixture-token')
+        expect(log.indexOf('backend start')).toBeLessThan(
+          log.indexOf('caddy start token=fixture-token'),
+        )
         expect(log).toContain('backend TERM')
         expect(log).toContain('caddy TERM')
         expect(log).not.toContain('caddy inherited notify')
       } finally {
         if (child.exitCode === null) child.kill('SIGKILL')
       }
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'withholds readiness when an unowned identity reaches the API namespace',
+    async () => {
+      const fixture = createRuntimeFixture()
+      const result = await waitForExit(
+        spawnRuntime(fixture, { SCOPE_DENIED_STATUS: '404' }),
+      )
+      const log = readFileSync(fixture.calls, 'utf8')
+      expect(result.code).not.toBe(0)
+      expect(result.stderr).toContain(
+        'Tailscale API namespace self-check failed (denied=404 allowed=404)',
+      )
+      expect(log).not.toContain('notify --ready')
+      expect(log).toContain('backend TERM')
+      expect(log).toContain('caddy TERM')
     },
   )
 

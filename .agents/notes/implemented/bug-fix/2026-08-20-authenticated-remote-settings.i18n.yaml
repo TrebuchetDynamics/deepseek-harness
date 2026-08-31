@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-20-authenticated-remote-settings.md
-2026-08-20-authenticated-remote-settings.md: c4f20ce9d1f4f04524e87317fe2287fd0a646fb9
-2026-08-20-authenticated-remote-settings.zh.md: 37998c8efbb55f8859c3de02469ac37dd3825811
+2026-08-20-authenticated-remote-settings.md: 0a77d7ce80cda830626849276d07b36cb456a6a0
+2026-08-20-authenticated-remote-settings.zh.md: 045987ff736bc51a17a850f2f12c29fb3fede8b1

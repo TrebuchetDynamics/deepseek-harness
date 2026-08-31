@@ -154,7 +154,7 @@ let s=""; process.stdin.on("data", d => s += d).on("end", () => {
 # Prove that the proxy denies an unowned identity and admits its configured owner.
 dsh_probe_identity_proxy() {
   local proxy="$1" magicdns="$2" owner="$3" launch_url="$4" deadline="${5:-$SECONDS}"
-  local token cookie_jar exchange denied allowed
+  local token cookie_jar exchange namespace_denied namespace_allowed denied allowed
   token="${launch_url#*\?token=}"
   [[ "$launch_url" =~ ^http://127\.0\.0\.1:[0-9]+/\?token=[A-Za-z0-9_-]+$ && "$token" =~ ^[A-Za-z0-9_-]+$ ]] || {
     dsh_die "Harness backend did not publish a valid launch URL"
@@ -171,6 +171,29 @@ dsh_probe_identity_proxy() {
   if [ "$exchange" != 303 ]; then
     rm -f "$cookie_jar"
     dsh_die "browser launch-token exchange through the identity proxy returned $exchange"
+    return 1
+  fi
+  local namespace_probe=(
+    -sS --max-time 5 -b "$cookie_jar" -o /dev/null -w '%{http_code}' -X POST
+    "$proxy/api/__dsh_api_namespace_probe__"
+    -H "Host: $magicdns"
+    -H "Origin: https://$magicdns"
+    -H 'content-type: application/json'
+    --data '{}'
+  )
+  namespace_denied="$(curl "${namespace_probe[@]}" -H 'Tailscale-User-Login: unauthorized@example.invalid')" || {
+    rm -f "$cookie_jar"
+    dsh_die "Tailscale API namespace self-check request failed for the unauthorized identity"
+    return 1
+  }
+  namespace_allowed="$(curl "${namespace_probe[@]}" -H "Tailscale-User-Login: $owner")" || {
+    rm -f "$cookie_jar"
+    dsh_die "Tailscale API namespace self-check request failed for $owner"
+    return 1
+  }
+  if [ "$namespace_denied" != 403 ] || [ "$namespace_allowed" != 404 ]; then
+    rm -f "$cookie_jar"
+    dsh_die "Tailscale API namespace self-check failed (denied=$namespace_denied allowed=$namespace_allowed)"
     return 1
   fi
   local probe=(
