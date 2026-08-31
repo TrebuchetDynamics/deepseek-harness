@@ -283,8 +283,9 @@ export class LocalBashExecutor extends ShellExecutor {
         proc.signal = outcome.signal
         this.onProcessDone(proc, collected.stderr.readFrom(0).text, false)
       }, (error: unknown) => {
-        // Background spawn failures settle as killed and surface through the read path.
+        // Background spawn failures are terminal infrastructure failures, not kills.
         proc.status = 'killed'
+        proc.infrastructureFailed = true
         spawnFailureNote = `spawn failed: ${String(error)}`
         this.onProcessDone(proc, spawnFailureNote, true, error)
       }),

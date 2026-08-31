@@ -165,6 +165,8 @@ export interface ShellProcess {
   exitCode: number | null
   /** Terminating signal name, when signal-killed. */
   signal: NodeJS.Signals | null
+  /** Whether process startup failed before a child process existed. */
+  infrastructureFailed?: boolean
   /** Resolves when the underlying process closes (never rejects — a spawn failure settles as `killed` with the error on stderr). */
   readonly done: Promise<void>
   /** Sandbox facts, stamped once a confined process settles. */

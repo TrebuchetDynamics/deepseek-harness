@@ -166,7 +166,7 @@ renderer 输出依数据而定的 stdout 尾部，再输出可选的 `[stderr]` 
 
 #### 模型看到什么
 
-后台启动精确渲染为 `started background job <id>`；随后的读取与状态经由通用 `job_output`／`job_kill` 工具流转，包括内存截断丢弃未读字节时的有损读取 spill 通知。
+后台启动精确渲染为 `started background job <id>`；随后的读取与状态经由通用 `job_output`／`job_kill` 工具流转，包括内存截断丢弃未读字节时的有损读取 spill 通知；基础设施失败会作为失败任务结果返回，并带有启动诊断。
 
 #### Token 影响
 

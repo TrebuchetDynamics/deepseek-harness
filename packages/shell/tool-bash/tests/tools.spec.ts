@@ -464,6 +464,24 @@ describe('background execution through the job runtime', () => {
     expect(final.isError).toBe(false)
   })
 
+  it('reports background process startup failure as a failed job', async () => {
+    const ctx = await setupWithTasks()
+    const started = await call(ctx, 'bash', {
+      command: 'true',
+      description: 'test command',
+      workdir: '/nonexistent-dsh',
+      run_in_background: true,
+    })
+    expect(started.isError).toBe(false)
+    const final = await callUntilText(
+      ctx,
+      'job_output',
+      { job_id: 'bash-1' },
+      '[status: failed, process infrastructure failure]',
+    )
+    expect(text(final)).toContain('spawn failed')
+  })
+
   it('a running background job is killable through the REAL job_kill tool', async () => {
     const ctx = await setupWithTasks()
     await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
@@ -797,6 +815,16 @@ describe('processOutcome', () => {
   it('maps a killed process without a recorded signal (kill raced exit / spawn failure)', () => {
     expect(processOutcome(settled({ status: 'killed', exitCode: null })))
       .toEqual({ status: 'killed', detail: 'killed before exit' })
+  })
+
+  it('maps process infrastructure failure to a failed job', () => {
+    expect(processOutcome(settled({ status: 'killed', exitCode: null, infrastructureFailed: true })))
+      .toEqual({ status: 'failed', detail: 'process infrastructure failure' })
+  })
+
+  it('maps sandbox runner failure to a failed job', () => {
+    expect(processOutcome(settled({ sandbox: { mode: 'read-only', denied: false, runnerFailed: true } })))
+      .toEqual({ status: 'failed', detail: 'sandbox runner failure' })
   })
 
   it('maps a completed process to its exit code', () => {

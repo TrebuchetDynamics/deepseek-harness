@@ -1053,6 +1053,16 @@ describe('processOutcome', () => {
       .toEqual({ status: 'killed', detail: 'killed before exit' })
   })
 
+  it('maps process infrastructure failure to a failed job', () => {
+    expect(processOutcome(settled({ status: 'killed', exitCode: null, infrastructureFailed: true })))
+      .toEqual({ status: 'failed', detail: 'process infrastructure failure' })
+  })
+
+  it('maps sandbox runner failure to a failed job', () => {
+    expect(processOutcome(settled({ sandbox: { mode: 'read-only', denied: false, runnerFailed: true } })))
+      .toEqual({ status: 'failed', detail: 'sandbox runner failure' })
+  })
+
   it('maps a completed process to its exit code', () => {
     expect(processOutcome(settled({ exitCode: 3 })))
       .toEqual({ status: 'completed', detail: 'exit code: 3' })
