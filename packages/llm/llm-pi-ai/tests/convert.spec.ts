@@ -795,6 +795,13 @@ describe('mapStopReason / mapUsage', () => {
       .toEqual({ kind: 'error', failure: { message: 'pi-ai stream error', code: 'PI_AI_ERROR' } })
   })
 
+  it('maps OpenAI generic processing failures to retryable server errors', () => {
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'An error occurred while processing your request. You can retry your request, or contact us through our help center at help.openai.com if the error persists. Please include the request ID 6b21438a-b109-4201-ac31-58ccbe070856 in your message.',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'SERVER' } })
+  })
+
   it('maps routable HTTP-ish error messages to stable codes', () => {
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 401: bad key' })))
       .toMatchObject({ kind: 'error', failure: { code: 'AUTH' } })
