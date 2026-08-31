@@ -15,7 +15,7 @@
 # falls back to the published CLI otherwise, keeping builds small and quick
 # even on slow uplinks.
 
-ARG DSH_VERSION=0.1.2-alpha.1
+ARG DSH_VERSION=0.1.2-alpha.2
 ARG PNPM_VERSION=11.7.0
 
 # The client and maintained CLI plugins talk to an explicitly mounted host
