@@ -48,7 +48,7 @@ function createRuntimeFixture(): RuntimeFixture {
   )
   executable(
     join(bin, 'caddy'),
-    'printf "caddy start token=%s\\n" "${DSH_BROWSER_LAUNCH_TOKEN:-missing}" >> "$CALLS"\n[ -z "${NOTIFY_SOCKET:-}" ] || printf "caddy inherited notify\\n" >> "$CALLS"\n[ "${CADDY_EXIT:-0}" = 0 ] || exit 7\ntrap \'printf "caddy TERM\\n" >> "$CALLS"; exit 0\' TERM INT\nwhile :; do sleep 1; done',
+    'printf "caddy start token=%s provider=%s bind=%s\\n" "${DSH_BROWSER_LAUNCH_TOKEN:-missing}" "${DSH_VPN_PROVIDER:-missing}" "${DSH_BIND_ADDRESS:-missing}" >> "$CALLS"\n[ -z "${NOTIFY_SOCKET:-}" ] || printf "caddy inherited notify\\n" >> "$CALLS"\n[ "${CADDY_EXIT:-0}" = 0 ] || exit 7\ntrap \'printf "caddy TERM\\n" >> "$CALLS"; exit 0\' TERM INT\nwhile :; do sleep 1; done',
   )
   executable(
     join(bin, 'tailscale'),
@@ -58,6 +58,7 @@ function createRuntimeFixture(): RuntimeFixture {
   *) printf "tailscale %s\\n" "$*" >> "$CALLS" ;;
 esac`,
   )
+  executable(join(bin, 'netbird'), 'case "$*" in "status --ipv4") echo 100.64.0.2 ;; *) printf "netbird %s\\n" "$*" >> "$CALLS" ;; esac')
   executable(
     join(bin, 'curl'),
     `case "$*" in
@@ -213,6 +214,13 @@ esac`,
   "debug prefs") printf '{"OperatorUser":"%s"}\\n' "\${TS_OPERATOR:-node}" ;;
   "serve status --json") printf '{"Web":{"host.tail.test:443":{"Handlers":{"/":{"Proxy":"%s"}}}}}\\n' "\${TS_TARGET:-http://127.0.0.1:4080}" ;;
   *) printf "tailscale %s\\n" "$*" >> "$CALLS" ;;
+esac`,
+  )
+  executable(
+    join(bin, 'netbird'),
+    `case "$*" in
+  "status --ipv4") echo 100.64.0.2 ;;
+  *) printf "netbird %s\\n" "$*" >> "$CALLS" ;;
 esac`,
   )
   executable(
@@ -748,6 +756,38 @@ describe('native Harness service installation', () => {
   )
 
   it.runIf(process.platform === 'linux')(
+    'installs a NetBird-bound service without Tailscale Serve',
+    () => {
+      const fixture = createInstallFixture()
+      const result = runInstaller(fixture, { DSH_VPN_PROVIDER: 'netbird' })
+      expect(result.status, result.stderr).toBe(0)
+      const repeat = runInstaller(fixture)
+      expect(repeat.status, repeat.stderr).toBe(0)
+      const unit = readFileSync(
+        join(fixture.systemRoot, 'etc/systemd/system/deepseek-harness.service'),
+        'utf8',
+      )
+      expect(unit).not.toContain('tailscaled.service')
+      expect(readFileSync(join(fixture.systemRoot, 'etc/deepseek-harness.env'), 'utf8'))
+        .toContain('DSH_VPN_PROVIDER=netbird')
+      expect(readFileSync(
+        join(fixture.systemRoot, 'usr/local/libexec/deepseek-harness/deployment/Caddyfile'),
+        'utf8',
+      )).toContain('expression `{env.DSH_VPN_PROVIDER} == "netbird"`')
+      const state: unknown = JSON.parse(readFileSync(
+        join(fixture.systemRoot, 'var/lib/deepseek-harness/deployment.json'),
+        'utf8',
+      ))
+      expect(state).toEqual({
+        checkout: repository,
+        httpsPort: 443,
+        publicTarget: 'http://127.0.0.1:4080',
+        serviceUser: 'node',
+      })
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
     'requires install to apply changed service ports',
     () => {
       const fixture = createInstallFixture()
@@ -1187,6 +1227,32 @@ describe('native Harness runtime', () => {
         expect(log).toContain('backend TERM')
         expect(log).toContain('caddy TERM')
         expect(log).not.toContain('caddy inherited notify')
+      } finally {
+        if (child.exitCode === null) child.kill('SIGKILL')
+      }
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'serves the Harness directly on the NetBird address',
+    async () => {
+      const fixture = createRuntimeFixture()
+      writeFileSync(
+        fixture.config,
+        readFileSync(fixture.config, 'utf8')
+          .replace('TAILSCALE_OWNER=owner@example.test\n', '')
+          .replace('DSH_BACKEND_PORT=4081', 'DSH_VPN_PROVIDER=netbird\nDSH_BACKEND_PORT=4081'),
+      )
+      const child = spawnRuntime(fixture)
+      try {
+        await waitForLog(fixture.calls, 'notify --ready')
+        child.kill('SIGTERM')
+        await waitForExit(child)
+        const log = readFileSync(fixture.calls, 'utf8')
+        expect(log).toContain('caddy start token=fixture-token provider=netbird bind=100.64.0.2')
+        expect(log).toContain('notify --ready')
+        expect(log).toContain('Serving http://100.64.0.2:4080/')
+        expect(log).not.toContain('tailscale serve')
       } finally {
         if (child.exitCode === null) child.kill('SIGKILL')
       }

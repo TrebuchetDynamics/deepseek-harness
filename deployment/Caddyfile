@@ -1,12 +1,13 @@
 # Tailscale Serve strips client-supplied identity headers before injecting the
-# authenticated user's login. This proxy listens only on loopback.
+# authenticated user's login. NetBird mode binds its peer address directly and
+# relies on NetBird ACLs plus the Harness browser cookie for access control.
 {
 	admin off
 	auto_https off
 }
 
 :{$DSH_PUBLIC_PORT} {
-	bind 127.0.0.1
+	bind {$DSH_BIND_ADDRESS}
 	encode zstd gzip
 
 	@versioned_bundle {
@@ -17,6 +18,19 @@
 
 	# Native service mode keeps the launch token in Caddy's environment and uses
 	# the Serve-injected owner identity to establish a browser session.
+	@netbird_index_without_cookie {
+		expression `{env.DSH_VPN_PROVIDER} == "netbird"`
+		path /
+		not header_regexp Cookie dsh-auth-
+	}
+
+	handle @netbird_index_without_cookie {
+		rewrite * /?token={$DSH_BROWSER_LAUNCH_TOKEN}
+		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
+			header_up Host {http.request.host}
+		}
+	}
+
 	@owner_index_without_cookie {
 		expression `{env.DSH_BROWSER_LAUNCH_TOKEN} != ""`
 		header Tailscale-User-Login {$TAILSCALE_OWNER}
@@ -51,6 +65,18 @@
 	}
 
 	handle @owner_api {
+		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
+			header_up Host {http.request.host}
+			header_up -X-Dsh-Task-Board-Proxy-Token
+		}
+	}
+
+	@netbird_api {
+		expression `{env.DSH_VPN_PROVIDER} == "netbird"`
+		path /api /api/*
+	}
+
+	handle @netbird_api {
 		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
 			header_up Host {http.request.host}
 			header_up -X-Dsh-Task-Board-Proxy-Token

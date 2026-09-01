@@ -42,18 +42,27 @@ native_systemd_path() {
 }
 
 native_render_unit() {
-  local user="$1" group="$2" home="$3" repo="$4" login_shell="$5" start_path="$6" config_path="$7"
-  local value
+  local user="$1" group="$2" home="$3" repo="$4" login_shell="$5" start_path="$6" config_path="$7" provider="${8:-tailscale}"
+  local value wants="network-online.target" after="network-online.target" requires="" part_of=""
+  [ "$provider" = tailscale ] || [ "$provider" = netbird ] || {
+    dsh_die "unsupported VPN provider: $provider"
+    return 1
+  }
+  if [ "$provider" = tailscale ]; then
+    after="network-online.target tailscaled.service"
+    requires="Requires=tailscaled.service"
+    part_of="PartOf=tailscaled.service"
+  fi
   for value in "$user" "$group" "$home" "$repo" "$login_shell" "$start_path" "$config_path"; do
     native_validate_systemd_value "systemd unit value" "$value" || return 1
   done
   cat <<EOF
 [Unit]
 Description=DeepSeek Harness
-Wants=network-online.target
-After=network-online.target tailscaled.service
-Requires=tailscaled.service
-PartOf=tailscaled.service
+Wants=$wants
+After=$after
+$requires
+$part_of
 StartLimitIntervalSec=0
 
 [Service]
@@ -122,20 +131,21 @@ native_distribution() {
 }
 
 native_dependency_guidance() {
-  local missing="$*" distribution command guidance
+  local provider="$1"; shift
+  local missing="$*" distribution command guidance vpn_package="$provider"
   distribution="$(native_distribution)"
   case "$distribution" in
     ubuntu)
-      command='sudo apt install caddy tailscale iproute2 git curl util-linux coreutils'
-      guidance='Configure the official Caddy and Tailscale APT repositories first.'
+      command="sudo apt install caddy $vpn_package iproute2 git curl util-linux coreutils"
+      guidance="Configure the official Caddy and $vpn_package APT repositories first."
       ;;
     fedora)
-      command='sudo dnf install caddy tailscale iproute git curl util-linux coreutils'
-      guidance='Configure the official Caddy and Tailscale RPM repositories first when these packages are unavailable.'
+      command="sudo dnf install caddy $vpn_package iproute git curl util-linux coreutils"
+      guidance="Configure the official Caddy and $vpn_package RPM repositories first when these packages are unavailable."
       ;;
     arch)
-      command='sudo pacman -S caddy tailscale iproute2 git curl util-linux coreutils'
-      guidance='Use the official Arch repositories and follow the Tailscale package documentation.'
+      command="sudo pacman -S caddy $vpn_package iproute2 git curl util-linux coreutils"
+      guidance="Use the official Arch repositories and follow the $vpn_package package documentation."
       ;;
     *)
       printf 'error: unsupported Linux distribution %s; install manually: %s\n' "${distribution:-unknown}" "$missing" >&2
@@ -162,9 +172,11 @@ native_require_root_tools() {
 }
 
 native_collect_missing_user_tools() {
-  local user="$1" home="$2" login_shell="$3" tool
-  local -n result="$4"
-  for tool in node pnpm git curl caddy tailscale setsid ss systemd-notify; do
+  local user="$1" home="$2" login_shell="$3" provider="$4" tool
+  local -n result="$5"
+  local vpn_tool=tailscale
+  [ "$provider" = netbird ] && vpn_tool=netbird
+  for tool in node pnpm git curl caddy "$vpn_tool" setsid ss systemd-notify; do
     native_login_exec "$user" "$home" "$login_shell" "command -v '$tool' >/dev/null" || result+=("$tool")
   done
 }
@@ -251,18 +263,18 @@ native_install_missing_host_packages() {
 }
 
 native_require_user_tools() {
-  local user="$1" home="$2" login_shell="$3" node_version pnpm_version
+  local user="$1" home="$2" login_shell="$3" provider="$4" node_version pnpm_version
   local -a missing=()
   native_reconcile_caddy_package_service || return 1
   native_enable_missing_pnpm "$user" "$home" "$login_shell" || return 1
-  native_collect_missing_user_tools "$user" "$home" "$login_shell" missing
+  native_collect_missing_user_tools "$user" "$home" "$login_shell" "$provider" missing
   if [ "${#missing[@]}" -gt 0 ]; then
     native_install_missing_host_packages "${missing[@]}" || return 1
     missing=()
-    native_collect_missing_user_tools "$user" "$home" "$login_shell" missing
+    native_collect_missing_user_tools "$user" "$home" "$login_shell" "$provider" missing
   fi
   [ "${#missing[@]}" -eq 0 ] || {
-    native_dependency_guidance "${missing[@]}"
+    native_dependency_guidance "$provider" "${missing[@]}"
     return 1
   }
   DSH_NODE_BIN="$(native_login_exec "$user" "$home" "$login_shell" 'command -v node')" || return 1
@@ -358,8 +370,16 @@ native_install_runtime_assets() {
 }
 
 native_write_default_config() {
-  local path="$1" owner="$2" tmp
+  local path="$1" provider="$2" owner="$3" tmp existing
   if [ -e "$path" ]; then
+    native_validate_config "$path" || return 1
+    existing="$(sed -n 's/^DSH_VPN_PROVIDER=//p' "$path")"
+    if [ -z "$existing" ]; then
+      printf 'DSH_VPN_PROVIDER=%s\n' "$provider" >>"$path"
+    elif [ "$existing" != "$provider" ]; then
+      dsh_die "configured DSH_VPN_PROVIDER $existing differs from requested $provider; edit $path before reinstalling"
+      return 1
+    fi
     native_validate_config "$path"
     return
   fi
@@ -369,9 +389,12 @@ DSH_BACKEND_PORT=4081
 DSH_PUBLIC_PORT=4080
 DSH_HTTPS_PORT=443
 DSH_STARTUP_TIMEOUT=90
-TAILSCALE_OWNER=$owner
-DSH_EXTRA_TRUSTED_HOSTS=
+DSH_VPN_PROVIDER=$provider
 EOF
+  if [ "$provider" = tailscale ]; then
+    printf 'TAILSCALE_OWNER=%s\n' "$owner" >>"$tmp"
+  fi
+  printf 'DSH_EXTRA_TRUSTED_HOSTS=\n' >>"$tmp"
   if ! native_install_file_atomically "$tmp" "$path" 0644; then
     rm -f "$tmp"
     return 1
@@ -503,8 +526,18 @@ for (const value of [state.checkout, state.serviceUser, String(state.httpsPort),
 }
 
 native_validate_owned_route() {
-  local actual
+  local actual provider="${DSH_VPN_PROVIDER:-tailscale}"
+  if [ -f "$DSH_CONFIG_FILE" ]; then
+    native_validate_config "$DSH_CONFIG_FILE" || return 1
+    # shellcheck disable=SC1090 -- native_validate_config accepts only fixed keys.
+    source "$DSH_CONFIG_FILE"
+    provider="${DSH_VPN_PROVIDER:-tailscale}"
+  fi
   DSH_HTTPS_PORT="$DSH_STATE_HTTPS_PORT"
+  if [ "$provider" = netbird ]; then
+    dsh_load_netbird_identity
+    return
+  fi
   actual="$(native_current_serve_target)" || {
     dsh_die "cannot prove a single active Tailscale Serve target on HTTPS port $DSH_STATE_HTTPS_PORT"
     return 1
@@ -597,10 +630,19 @@ process.stdout.write(`${JSON.stringify({ checkout, httpsPort: Number(httpsPort),
 
 native_install() {
   local repo="$1" user passwd group home login_shell unit_tmp updating=0 update_needs_restart=0
+  local provider="${DSH_VPN_PROVIDER:-}"
+  if [ -z "$provider" ] && [ -f "$DSH_CONFIG_FILE" ]; then
+    provider="$(sed -n 's/^DSH_VPN_PROVIDER=//p' "$DSH_CONFIG_FILE")"
+  fi
+  provider="${provider:-tailscale}"
   dsh_info "Installing the current checkout as persistent $DSH_SERVICE_NAME"
   native_require_root_tools
   [ "${DSH_DEPLOYMENT_LOCK_HELD:-}" = 1 ] || {
     dsh_die "native installation must be invoked as the non-root service user"
+    return 1
+  }
+  [ "$provider" = tailscale ] || [ "$provider" = netbird ] || {
+    dsh_die "DSH_VPN_PROVIDER must be tailscale or netbird"
     return 1
   }
 
@@ -638,7 +680,7 @@ native_install() {
   [ -d "$repo/.git" ] || { dsh_die "repository is not a Git checkout root: $repo"; return 1; }
   [ -f "$repo/pnpm-lock.yaml" ] || { dsh_die "pnpm lockfile not found: $repo/pnpm-lock.yaml"; return 1; }
   dsh_info "Checking the $user login-shell toolchain"
-  native_require_user_tools "$user" "$home" "$login_shell"
+  native_require_user_tools "$user" "$home" "$login_shell" "$provider"
   if [ -e "$DSH_UNIT_FILE" ]; then
     native_load_owned_state "$repo" 1
     native_validate_owned_route
@@ -657,25 +699,33 @@ native_install() {
     native_stop_for_update || return 1
   fi
 
-  dsh_info "Validating the host Tailscale identity and operator"
-  systemctl enable --now tailscaled.service >/dev/null || {
-    dsh_die "failed to enable and start tailscaled.service"
-    return 1
-  }
-  dsh_load_tailscale_identity
-  native_check_operator "$user"
+  if [ "$provider" = tailscale ]; then
+    dsh_info "Validating the host Tailscale identity and operator"
+    systemctl enable --now tailscaled.service >/dev/null || {
+      dsh_die "failed to enable and start tailscaled.service"
+      return 1
+    }
+    dsh_load_tailscale_identity
+    native_check_operator "$user"
+  else
+    dsh_info "Validating the host NetBird identity"
+    dsh_load_netbird_identity
+  fi
 
   install -d -o root -g root -m 0755 "$(dirname "$DSH_UNIT_FILE")" "$DSH_STATE_DIR"
-  native_write_default_config "$DSH_CONFIG_FILE" "$DSH_TAILSCALE_LOGIN"
+  native_write_default_config "$DSH_CONFIG_FILE" "$provider" "${DSH_TAILSCALE_LOGIN:-}"
   native_validate_config "$DSH_CONFIG_FILE"
   # shellcheck disable=SC1090 -- native_validate_config accepts only fixed keys.
   source "$DSH_CONFIG_FILE"
-  native_check_route_ownership "http://127.0.0.1:$DSH_PUBLIC_PORT"
+  DSH_VPN_PROVIDER="$provider"
+  if [ "$provider" = tailscale ]; then
+    native_check_route_ownership "http://127.0.0.1:$DSH_PUBLIC_PORT"
+  fi
 
   unit_tmp="$(mktemp --suffix=.service)"
   dsh_info "Installing the root-owned service launcher and proxy configuration"
   native_install_runtime_assets "$repo" || return 1
-  if ! native_render_unit "$user" "$group" "$home" "$repo" "$login_shell" "$DSH_INSTALLED_START" "$DSH_CONFIG_FILE" >"$unit_tmp"; then
+  if ! native_render_unit "$user" "$group" "$home" "$repo" "$login_shell" "$DSH_INSTALLED_START" "$DSH_CONFIG_FILE" "$provider" >"$unit_tmp"; then
     rm -f "$unit_tmp"
     return 1
   fi
@@ -733,15 +783,18 @@ native_uninstall() {
   native_load_owned_state "$repo"
   native_validate_owned_route
   systemctl disable --now "$DSH_SERVICE_NAME"
-  actual="$(native_current_serve_target)" || {
-    dsh_die "cannot verify Tailscale Serve cleanup after stopping $DSH_SERVICE_NAME"
-    return 1
-  }
-  [ -z "$actual" ] || [ "$actual" = "$DSH_STATE_TARGET" ] || {
-    dsh_die "Tailscale Serve HTTPS port $DSH_STATE_HTTPS_PORT changed ownership while stopping; preserving the unit"
-    return 1
-  }
-  [ -z "$actual" ] || tailscale serve --https="$DSH_STATE_HTTPS_PORT" off
+  local provider="${DSH_VPN_PROVIDER:-tailscale}"
+  if [ "$provider" = tailscale ]; then
+    actual="$(native_current_serve_target)" || {
+      dsh_die "cannot verify Tailscale Serve cleanup after stopping $DSH_SERVICE_NAME"
+      return 1
+    }
+    [ -z "$actual" ] || [ "$actual" = "$DSH_STATE_TARGET" ] || {
+      dsh_die "Tailscale Serve HTTPS port $DSH_STATE_HTTPS_PORT changed ownership while stopping; preserving the unit"
+      return 1
+    }
+    [ -z "$actual" ] || tailscale serve --https="$DSH_STATE_HTTPS_PORT" off
+  fi
   rm -f "$DSH_UNIT_FILE"
   rm -rf "$DSH_LIBEXEC_DIR"
   systemctl daemon-reload
@@ -784,13 +837,25 @@ native_as_root() {
     DSH_DEPLOYMENT_LOCK_HELD=1 \
     DSH_CALLER_PATH="$PATH" \
     DSH_VERBOSE="${DSH_VERBOSE:-0}" \
+     DSH_VPN_PROVIDER="${DSH_VPN_PROVIDER:-}" \
     "$repo/start.sh" "$command"
 }
 
 native_show_urls() {
-  dsh_load_tailscale_identity
-  local public_url="https://$DSH_MAGICDNS/"
-  [ "${DSH_HTTPS_PORT:-443}" = 443 ] || public_url="https://$DSH_MAGICDNS:${DSH_HTTPS_PORT}/"
+  if [ -f "$DSH_CONFIG_FILE" ]; then
+    native_validate_config "$DSH_CONFIG_FILE" || return 1
+    # shellcheck disable=SC1090 -- native_validate_config accepts only fixed keys.
+    source "$DSH_CONFIG_FILE"
+  fi
+  local provider="${DSH_VPN_PROVIDER:-tailscale}" public_url
+  if [ "$provider" = tailscale ]; then
+    dsh_load_tailscale_identity
+    public_url="https://$DSH_MAGICDNS/"
+    [ "${DSH_HTTPS_PORT:-443}" = 443 ] || public_url="https://$DSH_MAGICDNS:${DSH_HTTPS_PORT}/"
+  else
+    dsh_load_netbird_identity
+    public_url="http://$DSH_NETBIRD_IP:${DSH_PUBLIC_PORT:-4080}/"
+  fi
   echo "Web UI: $public_url"
   echo "Local proxy: http://127.0.0.1:${DSH_PUBLIC_PORT:-4080}/"
 }
@@ -868,19 +933,30 @@ native_validate_external_file() {
 
 # Parse the fixed service configuration keys before Bash loads their values.
 native_validate_config() {
-  local file="$1" name count invalid
+  local file="$1" name count invalid provider
   native_validate_external_file "$file" "service configuration" || return 1
-  invalid="$(grep -Ev '^(#.*|[[:space:]]*|DSH_BACKEND_PORT=[0-9]+|DSH_PUBLIC_PORT=[0-9]+|DSH_HTTPS_PORT=[0-9]+|DSH_STARTUP_TIMEOUT=[0-9]+|TAILSCALE_OWNER=[A-Za-z0-9@._+,:=%/-]+|DSH_EXTRA_TRUSTED_HOSTS=[A-Za-z0-9.,:_-]*)$' "$file" || true)"
+  invalid="$(grep -Ev '^(#.*|[[:space:]]*|DSH_BACKEND_PORT=[0-9]+|DSH_PUBLIC_PORT=[0-9]+|DSH_HTTPS_PORT=[0-9]+|DSH_STARTUP_TIMEOUT=[0-9]+|DSH_VPN_PROVIDER=(tailscale|netbird)|TAILSCALE_OWNER=[A-Za-z0-9@._+,:=%/-]+|DSH_EXTRA_TRUSTED_HOSTS=[A-Za-z0-9.,:_-]*)$' "$file" || true)"
   [ -z "$invalid" ] || {
     dsh_die "$file contains an unsupported or malformed setting"
     return 1
   }
+  provider="$(sed -n 's/^DSH_VPN_PROVIDER=//p' "$file")"
+  [ -z "$provider" ] || [ "$provider" = tailscale ] || [ "$provider" = netbird ] || {
+    dsh_die "$file must define DSH_VPN_PROVIDER as tailscale or netbird"
+    return 1
+  }
+  if [ "$provider" != netbird ]; then
+    count="$(grep -c '^TAILSCALE_OWNER=' "$file" || true)"
+    [ "$count" -eq 1 ] || {
+      dsh_die "$file must define TAILSCALE_OWNER exactly once for Tailscale"
+      return 1
+    }
+  fi
   for name in \
     DSH_BACKEND_PORT \
     DSH_PUBLIC_PORT \
     DSH_HTTPS_PORT \
     DSH_STARTUP_TIMEOUT \
-    TAILSCALE_OWNER \
     DSH_EXTRA_TRUSTED_HOSTS; do
     count="$(grep -c "^${name}=" "$file" || true)"
     [ "$count" -eq 1 ] || {
@@ -931,13 +1007,17 @@ dsh_wait_url() {
   dsh_die "$subject did not become ready at $report_url within ${timeout}s"
 }
 
-# Run Harness, Caddy, and host Tailscale publication as one supervised service.
+# Run Harness, Caddy, and the selected VPN publication as one supervised service.
 native_service_run() {
   local config_file="$1" repo="$2" service_user="$3" service_home="$4" login_shell="$5"
   native_validate_config "$config_file"
   # shellcheck disable=SC1090 -- native_validate_config accepts only fixed keys.
   source "$config_file"
-  local configured_owner="$TAILSCALE_OWNER"
+  local provider="${DSH_VPN_PROVIDER:-tailscale}" configured_owner="${TAILSCALE_OWNER:-}"
+  [ "$provider" = tailscale ] || [ "$provider" = netbird ] || {
+    dsh_die "unsupported VPN provider: $provider"
+    return 1
+  }
 
   dsh_validate_port DSH_BACKEND_PORT "$DSH_BACKEND_PORT"
   dsh_validate_port DSH_PUBLIC_PORT "$DSH_PUBLIC_PORT"
@@ -960,16 +1040,21 @@ native_service_run() {
     return 1
   }
 
-  dsh_load_tailscale_identity
-  [ "$configured_owner" = "$DSH_TAILSCALE_LOGIN" ] || {
-    dsh_die "configured TAILSCALE_OWNER $configured_owner does not match connected owner $DSH_TAILSCALE_LOGIN"
-    return 1
-  }
+  if [ "$provider" = tailscale ]; then
+    dsh_load_tailscale_identity
+    [ "$configured_owner" = "$DSH_TAILSCALE_LOGIN" ] || {
+      dsh_die "configured TAILSCALE_OWNER $configured_owner does not match connected owner $DSH_TAILSCALE_LOGIN"
+      return 1
+    }
+  else
+    dsh_load_netbird_identity
+  fi
 
   local runtime_directory="${RUNTIME_DIRECTORY:-$DSH_SERVICE_RUNTIME_DIR}"
   local backend_launcher="$runtime_directory/launch-backend"
   local backend_url_file="$runtime_directory/backend-url"
   local token backend_pid="" caddy_pid="" serve_published=0 child_status=0
+  local proxy_bind_address="${DSH_TAILSCALE_IP:-${DSH_NETBIRD_IP:-127.0.0.1}}"
   mkdir -p "$runtime_directory"
   [ -x "${DSH_NODE_BIN:-}" ] || DSH_NODE_BIN="$("$login_shell" -lc 'command -v node')"
   [ -x "$DSH_NODE_BIN" ] || {
@@ -986,7 +1071,9 @@ native_service_run() {
   cat >"$backend_launcher" <<'BACKEND'
 #!/usr/bin/env bash
 set -euo pipefail
-args=(dsh web --no-open --port "$DSH_PORT" --trusted-host "$DSH_MAGICDNS" --trusted-host "$DSH_TAILSCALE_IP")
+overlay_ip="${DSH_TAILSCALE_IP:-$DSH_NETBIRD_IP}"
+args=(dsh web --no-open --port "$DSH_PORT" --trusted-host "$overlay_ip")
+[ -z "${DSH_MAGICDNS:-}" ] || args+=(--trusted-host "$DSH_MAGICDNS")
 IFS=',' read -ra extra_hosts <<<"${DSH_EXTRA_TRUSTED_HOSTS:-}"
 for host in "${extra_hosts[@]}"; do
   [ -z "$host" ] || args+=(--trusted-host "$host")
@@ -1032,7 +1119,7 @@ BACKEND
 
   export DSH_BACKEND_LAUNCHER="$backend_launcher"
   export DSH_BACKEND_URL_FILE="$backend_url_file"
-  export DSH_EXTRA_TRUSTED_HOSTS DSH_MAGICDNS DSH_TAILSCALE_IP
+  export DSH_EXTRA_TRUSTED_HOSTS DSH_MAGICDNS DSH_TAILSCALE_IP DSH_NETBIRD_IP DSH_VPN_PROVIDER
   # Hardened hosts may mount the systemd runtime directory with noexec.
   # Only this supervisor owns systemd readiness notifications.
   NOTIFY_SOCKET= \
@@ -1044,8 +1131,13 @@ BACKEND
     setsid "$login_shell" -lc 'exec bash "$DSH_BACKEND_LAUNCHER"' &
   backend_pid=$!
 
-  local public_url="https://$DSH_MAGICDNS/"
-  [ "$DSH_HTTPS_PORT" = 443 ] || public_url="https://$DSH_MAGICDNS:$DSH_HTTPS_PORT/"
+  local public_url
+  if [ "$provider" = tailscale ]; then
+    public_url="https://$DSH_MAGICDNS/"
+    [ "$DSH_HTTPS_PORT" = 443 ] || public_url="https://$DSH_MAGICDNS:$DSH_HTTPS_PORT/"
+  else
+    public_url="http://$DSH_NETBIRD_IP:$DSH_PUBLIC_PORT/"
+  fi
 
   native_runtime_until_exit() {
     local startup_deadline=$((SECONDS + 10#$DSH_STARTUP_TIMEOUT)) launch_url launch_token
@@ -1061,20 +1153,26 @@ BACKEND
       DSH_TASK_BOARD_PROXY_TOKEN="$token" \
       DSH_BACKEND_PORT="$DSH_BACKEND_PORT" \
       DSH_PUBLIC_PORT="$DSH_PUBLIC_PORT" \
-      TAILSCALE_OWNER="$configured_owner" \
+       DSH_VPN_PROVIDER="$provider" \
+       DSH_BIND_ADDRESS="$proxy_bind_address" \
+      TAILSCALE_OWNER="${configured_owner:-__netbird_unused__}" \
       setsid "$login_shell" -lc 'exec caddy run --config "$DSH_CADDY_CONFIG" --adapter caddyfile' &
     caddy_pid=$!
     systemd-notify --status="Waiting for the Caddy identity proxy" 2>/dev/null || true
-    dsh_wait_http_process "$caddy_pid" "http://127.0.0.1:$DSH_PUBLIC_PORT/" "$DSH_STARTUP_TIMEOUT" "Caddy proxy" "$startup_deadline" || return $?
-    systemd-notify --status="Checking owner-only proxy authorization" 2>/dev/null || true
-    dsh_probe_identity_proxy "http://127.0.0.1:$DSH_PUBLIC_PORT" "$DSH_MAGICDNS" "$configured_owner" "$launch_url" "$startup_deadline" || return $?
-    systemd-notify --status="Publishing Tailscale HTTPS" 2>/dev/null || true
-    tailscale serve --yes --bg --https="$DSH_HTTPS_PORT" "http://127.0.0.1:$DSH_PUBLIC_PORT" || {
-      dsh_die "failed to publish $public_url with Tailscale Serve"
-      return 1
-    }
-    serve_published=1
-    dsh_wait_url "$public_url" "$DSH_STARTUP_TIMEOUT" "Tailscale HTTPS" "$startup_deadline" || return $?
+    dsh_wait_http_process "$caddy_pid" "http://$proxy_bind_address:$DSH_PUBLIC_PORT/" "$DSH_STARTUP_TIMEOUT" "Caddy proxy" "$startup_deadline" || return $?
+    systemd-notify --status="Checking browser authentication" 2>/dev/null || true
+    if [ "$provider" = tailscale ]; then
+      dsh_probe_identity_proxy "http://127.0.0.1:$DSH_PUBLIC_PORT" "$DSH_MAGICDNS" "$configured_owner" "$launch_url" "$startup_deadline" || return $?
+      systemd-notify --status="Publishing Tailscale HTTPS" 2>/dev/null || true
+      tailscale serve --yes --bg --https="$DSH_HTTPS_PORT" "http://127.0.0.1:$DSH_PUBLIC_PORT" || {
+        dsh_die "failed to publish $public_url with Tailscale Serve"
+        return 1
+      }
+      serve_published=1
+      dsh_wait_url "$public_url" "$DSH_STARTUP_TIMEOUT" "Tailscale HTTPS" "$startup_deadline" || return $?
+    else
+      dsh_wait_url "$public_url" "$DSH_STARTUP_TIMEOUT" "NetBird HTTP" "$startup_deadline" || return $?
+    fi
     kill -0 "$backend_pid" 2>/dev/null || {
       dsh_die "Harness backend exited before service readiness"
       return 1

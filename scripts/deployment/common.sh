@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared host-deployment validation and Tailscale proxy policy.
+# Shared host-deployment validation and VPN proxy policy.
 
 # Print a fatal deployment diagnostic without exiting the caller's shell.
 dsh_die() { echo "error: $*" >&2; return 1; }
@@ -149,6 +149,22 @@ let s=""; process.stdin.on("data", d => s += d).on("end", () => {
   DSH_TAILSCALE_LOGIN="$detected_owner"
   TAILSCALE_OWNER="${TAILSCALE_OWNER:-$detected_owner}"
   export DSH_MAGICDNS DSH_TAILSCALE_IP DSH_TAILSCALE_LOGIN TAILSCALE_OWNER
+}
+
+# Resolve the connected NetBird peer IPv4 address. NetBird ACLs provide the
+# network boundary; Harness's launch token and cookie provide application auth.
+dsh_load_netbird_identity() {
+  local ip
+  ip="$(netbird status --ipv4 2>/dev/null | head -n1)" || {
+    dsh_die "NetBird status unavailable; connect this host with 'netbird up'"
+    return 1
+  }
+  [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || {
+    dsh_die "NetBird IPv4 address unavailable; connect this host with 'netbird up'"
+    return 1
+  }
+  DSH_NETBIRD_IP="$ip"
+  export DSH_NETBIRD_IP
 }
 
 # Prove that the proxy denies an unowned identity and admits its configured owner.
