@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionTitleService from '@deepseek-ai/dsh-session-title'
 import * as providerPlugin from '@deepseek-ai/dsh-session-title-latest-message'
 
@@ -26,6 +27,7 @@ async function loadComposition(): Promise<Context> {
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-session'",
+    "- name: '@deepseek-ai/dsh-session-projection'",
     "- name: '@deepseek-ai/dsh-session-title'",
     '  config:',
     '    fallbackMaxWords: 5',
@@ -44,6 +46,7 @@ async function loadComposition(): Promise<Context> {
   context.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
     ['@deepseek-ai/dsh-session', SessionStore],
+    ['@deepseek-ai/dsh-session-projection', SessionProjectionRegistry],
     ['@deepseek-ai/dsh-session-title', SessionTitleService],
     ['@deepseek-ai/dsh-session-title-latest-message', providerPlugin],
   ])
@@ -106,7 +109,7 @@ describe('session-title-latest-message Loader composition', () => {
       title: 'Now update the tests',
       messageSeqs: [second.seq],
     })
-    const titles = session.events.filter(event => event.type === 'session/title')
+    const titles = session.snapshotEvents().filter(event => event.type === 'session/title')
     expect(titles.length).toBeGreaterThanOrEqual(2)
   })
 })

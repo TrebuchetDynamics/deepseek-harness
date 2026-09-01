@@ -1,7 +1,8 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionTitleService from '@deepseek-ai/dsh-session-title'
 import type { SessionTitleProvider, SessionTitleProviderRequest } from '@deepseek-ai/dsh-session-title'
 import * as providerPlugin from '@deepseek-ai/dsh-session-title-latest-message'
@@ -17,6 +18,7 @@ async function settle(): Promise<void> {
 async function capturedProvider(): Promise<[Context, SessionTitleProvider]> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SessionTitleService, TITLE_CONFIG)
   let registered: SessionTitleProvider | undefined
   vi.spyOn(ctx.sessionTitle, 'register').mockImplementation((provider) => {
@@ -46,8 +48,8 @@ describe('latest-message title provider', () => {
   it('derives the title from the newest eligible message only', async () => {
     const [, provider] = await capturedProvider()
     const result = await provider.generate(generateRequest([
-      { seq: 1, text: 'first prompt about parsing' },
-      { seq: 2, text: 'second prompt about rendering' },
+      { seq: SessionSeq(1), text: 'first prompt about parsing' },
+      { seq: SessionSeq(2), text: 'second prompt about rendering' },
     ]))
     expect(result).toEqual({
       title: 'second prompt about rendering',
@@ -66,7 +68,7 @@ describe('latest-message title provider', () => {
     controller.abort()
     await expect(provider.generate({
       session: Session.create(SessionId('detached-title')),
-      messages: [{ seq: 1, text: 'never titled' }],
+      messages: [{ seq: SessionSeq(1), text: 'never titled' }],
       signal: controller.signal,
     })).rejects.toMatchObject({ name: 'AbortError' })
   })
@@ -74,6 +76,7 @@ describe('latest-message title provider', () => {
   it('applies the configured word cap', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SessionTitleService, TITLE_CONFIG)
     let registered: SessionTitleProvider | undefined
     vi.spyOn(ctx.sessionTitle, 'register').mockImplementation((provider) => {
@@ -82,7 +85,7 @@ describe('latest-message title provider', () => {
     })
     providerPlugin.apply(ctx, { maxWords: 2, maxBytes: 100 })
     const result = await registered!.generate(generateRequest([
-      { seq: 1, text: 'one two three four five' },
+      { seq: SessionSeq(1), text: 'one two three four five' },
     ]))
     expect(result.title).toBe('one two')
   })
@@ -90,6 +93,7 @@ describe('latest-message title provider', () => {
   it('applies the UTF-8 byte cap without splitting a code point', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SessionTitleService, TITLE_CONFIG)
     let registered: SessionTitleProvider | undefined
     vi.spyOn(ctx.sessionTitle, 'register').mockImplementation((provider) => {
@@ -98,7 +102,7 @@ describe('latest-message title provider', () => {
     })
     providerPlugin.apply(ctx, { maxWords: 5, maxBytes: 3 })
     const result = await registered!.generate(generateRequest([
-      { seq: 1, text: 'héllo world' },
+      { seq: SessionSeq(1), text: 'héllo world' },
     ]))
     expect(result.title).toBe('hé')
   })
@@ -106,6 +110,7 @@ describe('latest-message title provider', () => {
   it('rejects an over-tight byte cap that empties the derived title', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SessionTitleService, TITLE_CONFIG)
     let registered: SessionTitleProvider | undefined
     vi.spyOn(ctx.sessionTitle, 'register').mockImplementation((provider) => {
@@ -114,13 +119,14 @@ describe('latest-message title provider', () => {
     })
     providerPlugin.apply(ctx, { maxWords: 5, maxBytes: 1 })
     await expect(registered!.generate(generateRequest([
-      { seq: 1, text: '你' },
+      { seq: SessionSeq(1), text: '你' },
     ]))).rejects.toThrow(/produced an empty title/)
   })
 
   it('rejects invalid configuration at apply time', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SessionTitleService, TITLE_CONFIG)
     vi.spyOn(ctx.sessionTitle, 'register').mockReturnValue(async () => undefined)
     expect(() => { providerPlugin.apply(ctx, { maxWords: 5, maxBytes: 0 }) })
@@ -138,6 +144,7 @@ describe('latest-message title provider', () => {
   it('renames the session again after every new human message', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SessionTitleService, TITLE_CONFIG)
     await ctx.plugin(providerPlugin, PLUGIN_CONFIG)
     const session = ctx.sessions.create(SessionId('rename-cadence'))
@@ -167,7 +174,7 @@ describe('latest-message title provider', () => {
       title: 'second prompt about rendering',
       messageSeqs: [second.seq],
     })
-    const titles = session.events.filter(event => event.type === 'session/title')
+    const titles = session.snapshotEvents().filter(event => event.type === 'session/title')
     expect(titles.length).toBeGreaterThanOrEqual(2)
   })
 })
