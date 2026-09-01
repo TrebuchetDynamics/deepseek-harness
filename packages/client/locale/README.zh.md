@@ -138,3 +138,5 @@ Client 始终请求 Host-backed settings scope。Host 授权每个请求，并�
 无。
 
 </details>
+
+**运行时不变式：** 不发布伴生入口。locale catalog 与字典没有可供交叉核对的独立运行时来源；注册释放、偏好解析和 fallback 查找由行为测试覆盖。
