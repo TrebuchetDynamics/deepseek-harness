@@ -14,8 +14,8 @@ Status: implemented
 
 - **合并前**保留既有守卫（在 `master` 上、跟踪文件干净），并新增 `upstream` 远端存在性检查，错误信息给出确切的 `git remote add` 命令。
 - **合并**统计进入的提交数，执行 `git merge --no-edit upstream/master`；冲突时以退出码 1 保留进行中的合并，打印冲突文件列表（`git diff --name-only --diff-filter=U`）与两条出路：双语文档对（其 i18n 一致性记录经仓库的合并驱动产生冲突）用 `pnpm run resolve-translation-pairing-conflicts`，取消用 `git merge --abort`。
-- **可续跑**是结构性变化：`git merge-base --is-ancestor upstream/master HEAD` 检测已合并状态，此时不退出，而是继续执行合并后步骤。被冲突打断的运行在手工 `git commit` 之后重新运行即可补全——合并被跳过，后续步骤照常发生。
-- **合并后**无条件且幂等地执行：把 `Dockerfile` 的 `ARG DSH_VERSION` 重新固定到 `package.json` 的版本，不同时单独提交（合并提交保持纯合并）；合并触及 `pnpm-lock.yaml` 时 `pnpm install`（以合并前捕获的 `pre_merge_head` 判定，而非 reflog 运算）；`pnpm run typecheck` 作为推送前门槛。脚本绝不推送——操作者审查后自行推送。
+- **可续跑**是结构性变化：`git merge-base --is-ancestor upstream/master HEAD` 检测已合并状态，此时不退出，而是继续执行合并后步骤。开始合并前，脚本会把原始 HEAD 记录到私有 `refs/dsh/upstream-merge-base` ref。被冲突打断的运行在手工 `git commit` 之后重新运行即可补全——合并被跳过，保留的 ref 让后续步骤仍关联原始基线，验证成功后再删除该 ref。
+- **合并后**无条件且幂等地执行：把 `Dockerfile` 的 `ARG DSH_VERSION` 重新固定到 `package.json` 的版本，不同时单独提交（合并提交保持纯合并）；合并触及 `pnpm-lock.yaml` 时 `pnpm install`（以保留的私有 ref 判定，而非冲突解决后的 HEAD 或 reflog 运算）；`pnpm run typecheck` 作为推送前门槛。脚本绝不推送——操作者审查后自行推送。
 
 ## 考虑过的替代方案
 

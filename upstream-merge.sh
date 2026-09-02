@@ -21,11 +21,12 @@ git remote get-url upstream >/dev/null 2>&1 \
   || die "no 'upstream' remote; add it with: git remote add upstream https://github.com/deepseek-ai/deepseek-harness.git"
 
 git fetch upstream master
-pre_merge_head="$(git rev-parse HEAD)"
+merge_base_ref=refs/dsh/upstream-merge-base
 
 if git merge-base --is-ancestor upstream/master HEAD; then
   echo "upstream/master already merged; checking post-merge steps"
 else
+  git update-ref "$merge_base_ref" HEAD
   echo "merging $(git rev-list --count master..upstream/master) upstream commits ($(git rev-parse --short HEAD)..$(git rev-parse --short upstream/master))"
   if ! git merge --no-edit upstream/master; then
     echo >&2
@@ -45,12 +46,14 @@ if [ "$image_version" != "$repo_version" ]; then
   echo "re-pinned Dockerfile DSH_VERSION: $image_version -> $repo_version"
 fi
 
-# New or changed dependencies must be installed before anything typechecks.
-if git diff --name-only "$pre_merge_head" HEAD -- pnpm-lock.yaml | grep -q .; then
+# Keep the original merge base across conflict resolution and failed validation.
+pre_merge_head="$(git rev-parse --verify --quiet "$merge_base_ref" || true)"
+if [ -n "$pre_merge_head" ] && git diff --name-only "$pre_merge_head" HEAD -- pnpm-lock.yaml | grep -q .; then
   pnpm install
 fi
 
 pnpm run typecheck || die "typecheck failed; fix before pushing"
+git update-ref -d "$merge_base_ref"
 
 echo
 echo "fork summary against upstream/master:"
