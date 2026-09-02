@@ -473,34 +473,45 @@ native_check_route_ownership() {
 }
 
 native_load_owned_state() {
-  local expected_repo="$1" recover_missing_checkout="${2:-0}" recorded_checkout state_output
+  local expected_repo="$1" recover_install_state="${2:-0}" recorded_checkout state_output
   local -a state=()
   native_validate_external_file "$DSH_STATE_FILE" "deployment state" || return 1
+  native_validate_external_file "$DSH_UNIT_FILE" "systemd unit" || return 1
   state_output="$(dsh_node -e '
 const fs = require("node:fs")
 const state = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
 const keys = Object.keys(state).sort().join(",")
-if (keys !== "checkout,httpsPort,provider,publicTarget,serviceUser") process.exit(2)
+const legacy = keys === "checkout,httpsPort,publicTarget,serviceUser"
+if (keys !== "checkout,httpsPort,provider,publicTarget,serviceUser" && !(legacy && process.argv[2] === "1")) process.exit(2)
 if (typeof state.checkout !== "string" || typeof state.serviceUser !== "string") process.exit(2)
 if (!Number.isInteger(state.httpsPort) || state.httpsPort < 1 || state.httpsPort > 65535) process.exit(2)
 const provider = state.provider
-if (provider !== "tailscale" && provider !== "netbird") process.exit(2)
+if (!legacy && provider !== "tailscale" && provider !== "netbird") process.exit(2)
 const target = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/.exec(state.publicTarget)
 if (!target || Number(target[1]) > 65535) process.exit(2)
-for (const value of [state.checkout, state.serviceUser, String(state.httpsPort), state.publicTarget, provider]) {
+for (const value of [state.checkout, state.serviceUser, String(state.httpsPort), state.publicTarget, provider ?? ""]) {
   if (/[\r\n]/.test(value)) process.exit(2)
   console.log(value)
 }
-' "$DSH_STATE_FILE")" || {
+' "$DSH_STATE_FILE" "$recover_install_state")" || {
     dsh_die "deployment state is malformed: $DSH_STATE_FILE"
     return 1
   }
   mapfile -t state <<<"$state_output"
-  [ "${#state[@]}" -eq 5 ] || { dsh_die "deployment state is incomplete: $DSH_STATE_FILE"; return 1; }
+  if [ "${#state[@]}" -eq 4 ]; then
+    if grep -Fq 'Requires=tailscaled.service' "$DSH_UNIT_FILE"; then
+      state+=(tailscale)
+    else
+      state+=(netbird)
+    fi
+  elif [ "${#state[@]}" -ne 5 ]; then
+    dsh_die "deployment state is incomplete: $DSH_STATE_FILE"
+    return 1
+  fi
   recorded_checkout="${state[0]}"
   DSH_STATE_CHECKOUT_MISSING=0
   if [ ! -e "$recorded_checkout" ]; then
-    [ "$recover_missing_checkout" = 1 ] || {
+    [ "$recover_install_state" = 1 ] || {
       dsh_die "installed service checkout no longer exists: $recorded_checkout; run './start.sh install' from the desired checkout to recover"
       return 1
     }
@@ -519,7 +530,6 @@ for (const value of [state.checkout, state.serviceUser, String(state.httpsPort),
     dsh_die "installed service belongs to $DSH_STATE_CHECKOUT, not $expected_repo"
     return 1
   }
-  native_validate_external_file "$DSH_UNIT_FILE" "systemd unit" || return 1
   grep -Fq "User=$DSH_STATE_USER" "$DSH_UNIT_FILE" &&
     grep -Fq "ExecStart=\"$DSH_INSTALLED_START\" __service" "$DSH_UNIT_FILE" || {
       dsh_die "$DSH_UNIT_FILE does not match the recorded native installation"
@@ -563,7 +573,19 @@ native_remove_owned_tailscale_route() {
     dsh_die "Tailscale Serve HTTPS port $DSH_STATE_HTTPS_PORT changed ownership; preserving $actual"
     return 1
   }
-  [ -z "$actual" ] || tailscale serve --https="$DSH_STATE_HTTPS_PORT" off
+  if [ -n "$actual" ] && ! tailscale serve --yes --bg --https="$DSH_STATE_HTTPS_PORT" off; then
+    actual="$(native_current_serve_target)" || {
+      dsh_die "cannot verify Tailscale Serve cleanup on HTTPS port $DSH_STATE_HTTPS_PORT"
+      return 1
+    }
+    [ -z "$actual" ] && return 0
+    [ "$actual" = "$DSH_STATE_TARGET" ] || {
+      dsh_die "Tailscale Serve HTTPS port $DSH_STATE_HTTPS_PORT changed ownership; preserving $actual"
+      return 1
+    }
+    dsh_die "could not remove the owned Tailscale Serve route on HTTPS port $DSH_STATE_HTTPS_PORT"
+    return 1
+  fi
 }
 
 native_remove_owned_docker() {
@@ -724,14 +746,13 @@ native_install() {
   if [ -z "$provider" ] && [ -f "$DSH_CONFIG_FILE" ]; then
     provider="$(sed -n 's/^DSH_VPN_PROVIDER=//p' "$DSH_CONFIG_FILE")"
   fi
-  provider="${provider:-tailscale}"
   dsh_info "Installing the current checkout as persistent $DSH_SERVICE_NAME"
   native_require_root_tools
   [ "${DSH_DEPLOYMENT_LOCK_HELD:-}" = 1 ] || {
     dsh_die "native installation must be invoked as the non-root service user"
     return 1
   }
-  [ "$provider" = tailscale ] || [ "$provider" = netbird ] || {
+  [ -z "$provider" ] || [ "$provider" = tailscale ] || [ "$provider" = netbird ] || {
     dsh_die "DSH_VPN_PROVIDER must be tailscale or netbird"
     return 1
   }
@@ -749,7 +770,7 @@ native_install() {
       return 1
     }
     update_needs_restart=1
-    trap native_restart_interrupted_update EXIT
+    trap 'systemctl start "$DSH_SERVICE_NAME" >/dev/null 2>&1 || true' EXIT
   }
 
   user="${DSH_SERVICE_USER:-${SUDO_USER:-}}"
@@ -765,6 +786,20 @@ native_install() {
   [ -x "$login_shell" ] || { dsh_die "login shell is not executable for $user: $login_shell"; return 1; }
   group="$(id -gn "$user")"
   native_validate_login_shell "$user" "$home" "$login_shell"
+  if [ -z "$provider" ]; then
+    provider="$(native_login_exec "$user" "$home" "$login_shell" '
+if command -v netbird >/dev/null && netbird status --ipv4 >/dev/null 2>&1; then
+  printf netbird
+elif command -v tailscale >/dev/null && [ -n "$(tailscale ip -4 2>/dev/null | head -n1)" ]; then
+  printf tailscale
+else
+  exit 1
+fi')" || {
+      dsh_die "no connected NetBird or Tailscale network found; connect one or set DSH_VPN_PROVIDER"
+      return 1
+    }
+    dsh_info "Detected connected VPN provider: $provider"
+  fi
 
   repo="$(readlink -f "$repo")"
   [ -d "$repo/.git" ] || { dsh_die "repository is not a Git checkout root: $repo"; return 1; }
@@ -941,7 +976,7 @@ native_show_urls() {
     public_url="http://$DSH_NETBIRD_IP:${DSH_PUBLIC_PORT:-4080}/"
   fi
   echo "Web UI: $public_url"
-  echo "Local proxy: http://127.0.0.1:${DSH_PUBLIC_PORT:-4080}/"
+  [ "$provider" != tailscale ] || echo "Local proxy: http://127.0.0.1:${DSH_PUBLIC_PORT:-4080}/"
 }
 
 # Reject lifecycle starts whose edited ports no longer match installed state.
@@ -1191,7 +1226,7 @@ BACKEND
     if [ "$serve_published" = 1 ]; then
       local cleanup_target expected_target="http://127.0.0.1:$DSH_PUBLIC_PORT"
       if cleanup_target="$(native_current_serve_target)" && [ "$cleanup_target" = "$expected_target" ]; then
-        tailscale serve --https="$DSH_HTTPS_PORT" off >/dev/null 2>&1 || true
+        tailscale serve --yes --bg --https="$DSH_HTTPS_PORT" off >/dev/null 2>&1 || true
       elif [ -n "${cleanup_target:-}" ]; then
         dsh_warn "leaving Tailscale Serve route owned by $cleanup_target"
       else

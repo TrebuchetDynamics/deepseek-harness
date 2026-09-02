@@ -59,7 +59,7 @@ function createRuntimeFixture(): RuntimeFixture {
   *) printf "tailscale %s\\n" "$*" >> "$CALLS" ;;
 esac`,
   )
-  executable(join(bin, 'netbird'), 'case "$*" in "status --ipv4") echo 100.64.0.2 ;; *) printf "netbird %s\\n" "$*" >> "$CALLS" ;; esac')
+  executable(join(bin, 'netbird'), 'case "$*" in "status --ipv4") [ "${NETBIRD_CONNECTED:-0}" = 1 ] || exit 1; echo 100.64.0.2 ;; *) printf "netbird %s\\n" "$*" >> "$CALLS" ;; esac')
   executable(
     join(bin, 'curl'),
     `case "$*" in
@@ -212,16 +212,25 @@ esac`,
     join(bin, 'tailscale'),
     `case "$*" in
   "status --json") echo '{"BackendState":"Running","Self":{"DNSName":"host.tail.test.","UserID":1},"User":{"1":{"LoginName":"owner@example.test"}}}' ;;
-  "ip -4") echo 100.64.0.1 ;;
+  "ip -4") [ "\${TAILSCALE_CONNECTED:-1}" = 1 ] || exit 1; echo 100.64.0.1 ;;
   "debug prefs") printf '{"OperatorUser":"%s"}\\n' "\${TS_OPERATOR:-node}" ;;
-  "serve status --json") printf '{"Web":{"host.tail.test:443":{"Handlers":{"/":{"Proxy":"%s"}}}}}\\n' "\${TS_TARGET:-http://127.0.0.1:4080}" ;;
-  *) printf "tailscale %s\\n" "$*" >> "$CALLS" ;;
+  "serve status --json")
+    target="\${TS_TARGET:-http://127.0.0.1:4080}"
+    [ ! -e "$CALLS.serve-off-raced" ] || target=
+    printf '{"Web":{"host.tail.test:443":{"Handlers":{"/":{"Proxy":"%s"}}}}}\n' "$target"
+    ;;
+  "serve --yes --bg --https=443 off")
+    if [ "\${SERVE_OFF_RACE:-0}" = 1 ]; then : > "$CALLS.serve-off-raced"; echo 'Tailscale is stopped.'; exit 1; fi
+    [ "\${FAIL_SERVE_OFF:-0}" != 1 ] || exit 1
+    printf "tailscale %s\n" "$*" >> "$CALLS"
+    ;;
+  *) printf "tailscale %s\n" "$*" >> "$CALLS" ;;
 esac`,
   )
   executable(
     join(bin, 'netbird'),
     `case "$*" in
-  "status --ipv4") echo 100.64.0.2 ;;
+  "status --ipv4") [ "\${NETBIRD_CONNECTED:-0}" = 1 ] || exit 1; echo 100.64.0.2 ;;
   *) printf "netbird %s\\n" "$*" >> "$CALLS" ;;
 esac`,
   )
@@ -435,6 +444,41 @@ describe('native Harness service installation', () => {
       expect(result.stdout).not.toContain('?token=fixture-token')
       expect(result.stdout).toContain(
         'Installed persistent deepseek-harness.service; it continues in the background.',
+      )
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'prefers a connected NetBird when no provider is configured',
+    () => {
+      const fixture = createInstallFixture()
+
+      const result = runLifecycle(fixture, undefined, {
+        NETBIRD_CONNECTED: '1',
+      })
+
+      expect(result.status, result.stderr).toBe(0)
+      expect(
+        readFileSync(
+          join(fixture.systemRoot, 'etc/deepseek-harness.env'),
+          'utf8',
+        ),
+      ).toContain('DSH_VPN_PROVIDER=netbird')
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'requires an explicit provider when no VPN is connected',
+    () => {
+      const fixture = createInstallFixture()
+
+      const result = runLifecycle(fixture, undefined, {
+        TAILSCALE_CONNECTED: '0',
+      })
+
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain(
+        'no connected NetBird or Tailscale network found',
       )
     },
   )
@@ -762,9 +806,14 @@ describe('native Harness service installation', () => {
     'installs a NetBird-bound service without Tailscale Serve',
     () => {
       const fixture = createInstallFixture()
-      const result = runInstaller(fixture, { DSH_VPN_PROVIDER: 'netbird' })
+      const result = runInstaller(fixture, {
+        DSH_VPN_PROVIDER: 'netbird',
+        NETBIRD_CONNECTED: '1',
+      })
       expect(result.status, result.stderr).toBe(0)
-      const repeat = runInstaller(fixture)
+      expect(result.stdout).toContain('Web UI: http://100.64.0.2:4080/')
+      expect(result.stdout).not.toContain('Local proxy:')
+      const repeat = runInstaller(fixture, { NETBIRD_CONNECTED: '1' })
       expect(repeat.status, repeat.stderr).toBe(0)
       const unit = readFileSync(
         join(fixture.systemRoot, 'etc/systemd/system/deepseek-harness.service'),
@@ -808,11 +857,11 @@ describe('native Harness service installation', () => {
       )
       writeFileSync(fixture.calls, '')
 
-      const result = runInstaller(fixture)
+      const result = runInstaller(fixture, { NETBIRD_CONNECTED: '1' })
 
       expect(result.status, result.stderr).toBe(0)
       const calls = readFileSync(fixture.calls, 'utf8')
-      expect(calls).toContain('tailscale serve --https=443 off')
+      expect(calls).toContain('tailscale serve --yes --bg --https=443 off')
       expect(readFileSync(
         join(fixture.systemRoot, 'etc/systemd/system/deepseek-harness.service'),
         'utf8',
@@ -822,6 +871,40 @@ describe('native Harness service installation', () => {
         'utf8',
       )) as { provider?: string }
       expect(state.provider).toBe('netbird')
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'handles concurrent and failed Tailscale route cleanup during transition',
+    () => {
+      for (const failure of ['SERVE_OFF_RACE', 'FAIL_SERVE_OFF']) {
+        const fixture = createInstallFixture()
+        expect(runInstaller(fixture).status).toBe(0)
+        const config = join(fixture.systemRoot, 'etc/deepseek-harness.env')
+        writeFileSync(
+          config,
+          readFileSync(config, 'utf8').replace(
+            'DSH_VPN_PROVIDER=tailscale',
+            'DSH_VPN_PROVIDER=netbird',
+          ),
+        )
+        writeFileSync(fixture.calls, '')
+
+        const result = runInstaller(fixture, {
+          [failure]: '1',
+          NETBIRD_CONNECTED: '1',
+        })
+
+        expect(result.stderr).not.toContain('unbound variable')
+        if (failure === 'SERVE_OFF_RACE') {
+          expect(result.status, result.stderr).toBe(0)
+        } else {
+          expect(result.status).not.toBe(0)
+          expect(readFileSync(fixture.calls, 'utf8')).toContain(
+            'systemctl start deepseek-harness.service',
+          )
+        }
+      }
     },
   )
 
@@ -849,6 +932,50 @@ describe('native Harness service installation', () => {
       expect(readFileSync(fixture.calls, 'utf8')).not.toContain(
         'systemctl restart deepseek-harness.service',
       )
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'recovers only exact legacy state for either installed provider',
+    () => {
+      for (const provider of ['tailscale', 'netbird']) {
+        const fixture = createInstallFixture()
+        expect(
+          runInstaller(fixture, {
+            DSH_VPN_PROVIDER: provider,
+            NETBIRD_CONNECTED: '1',
+          }).status,
+        ).toBe(0)
+        const statePath = join(
+          fixture.systemRoot,
+          'var/lib/deepseek-harness/deployment.json',
+        )
+        const state = JSON.parse(readFileSync(statePath, 'utf8')) as Record<
+          string,
+          unknown
+        >
+        delete state.provider
+        state.unexpected = true
+        writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`)
+        expect(
+          runInstaller(fixture, {
+            DSH_VPN_PROVIDER: provider,
+            NETBIRD_CONNECTED: '1',
+          }).status,
+        ).not.toBe(0)
+        delete state.unexpected
+        writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`)
+
+        const result = runInstaller(fixture, {
+          DSH_VPN_PROVIDER: provider,
+          NETBIRD_CONNECTED: '1',
+        })
+
+        expect(result.status, result.stderr).toBe(0)
+        expect(JSON.parse(readFileSync(statePath, 'utf8'))).toMatchObject({
+          provider,
+        })
+      }
     },
   )
 
@@ -1214,7 +1341,7 @@ describe('native Harness service installation', () => {
 
       expect(result.status, result.stderr).toBe(0)
       expect(readFileSync(fixture.calls, 'utf8')).toContain(
-        'tailscale serve --https=443 off',
+        'tailscale serve --yes --bg --https=443 off',
       )
     },
   )
@@ -1231,7 +1358,7 @@ describe('native Harness service installation', () => {
       expect(calls).toContain(
         'systemctl disable --now deepseek-harness.service',
       )
-      expect(calls).toContain('tailscale serve --https=443 off')
+      expect(calls).toContain('tailscale serve --yes --bg --https=443 off')
       expect(() =>
         readFileSync(
           join(
@@ -1444,7 +1571,7 @@ describe('native Harness runtime', () => {
           .replace('TAILSCALE_OWNER=owner@example.test\n', '')
           .replace('DSH_BACKEND_PORT=4081', 'DSH_VPN_PROVIDER=netbird\nDSH_BACKEND_PORT=4081'),
       )
-      const child = spawnRuntime(fixture)
+      const child = spawnRuntime(fixture, { NETBIRD_CONNECTED: '1' })
       try {
         await waitForLog(fixture.calls, 'notify --ready')
         child.kill('SIGTERM')

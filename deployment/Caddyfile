@@ -27,7 +27,6 @@
 	handle @netbird_index_without_cookie {
 		rewrite * /?token={$DSH_BROWSER_LAUNCH_TOKEN}
 		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
-			header_up Host {http.request.host}
 		}
 	}
 
@@ -41,7 +40,6 @@
 	handle @owner_index_without_cookie {
 		rewrite * /?token={$DSH_BROWSER_LAUNCH_TOKEN}
 		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
-			header_up Host {http.request.host}
 		}
 	}
 
@@ -53,7 +51,6 @@
 
 	handle @owner_task_board {
 		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
-			header_up Host {http.request.host}
 			header_up X-Dsh-Task-Board-Proxy-Token {$DSH_TASK_BOARD_PROXY_TOKEN}
 		}
 	}
@@ -68,7 +65,6 @@
 
 	handle @owner_api {
 		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
-			header_up Host {http.request.host}
 			header_up -X-Dsh-Task-Board-Proxy-Token
 		}
 	}
@@ -80,7 +76,6 @@
 
 	handle @netbird_api {
 		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
-			header_up Host {http.request.host}
 			header_up -X-Dsh-Task-Board-Proxy-Token
 		}
 	}
@@ -96,7 +91,6 @@
 	# Host still requires its authority-bound browser cookie for protected data.
 	handle {
 		reverse_proxy 127.0.0.1:{$DSH_BACKEND_PORT} {
-			header_up Host {http.request.host}
 			header_up -X-Dsh-Task-Board-Proxy-Token
 		}
 	}

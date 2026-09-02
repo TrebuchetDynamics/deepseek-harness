@@ -36,11 +36,11 @@ sudo pacman -S caddy netbird iproute2 git curl util-linux coreutils
 ```sh
 ./start.sh
 
-# Use NetBird instead of Tailscale
+# Override automatic VPN selection
 DSH_VPN_PROVIDER=netbird ./start.sh
 ```
 
-启动器仅为缺失的 Caddy 包安装、确切的自有 Docker 接管、systemd、root 属主配置与所选 VPN 设置使用 `sudo`。它会为每个安装阶段显示实时旋转进度与耗时，同时隐藏成功的包管理器、构建与 unit 校验细节；执行 `DSH_VERBOSE=1 ./start.sh` 可在诊断时流式显示这些命令。它通过用户登录 shell 在原检出中完成准备，保留该用户的补充组，在切换前构建，并等待 systemd `Type=notify` 就绪结果。监听器检查接受任意 HTTP 响应，因为受令牌保护的根路径会拒绝未认证请求。监督进程会在其私有运行时目录中捕获后端启动 URL，并且只把其中的令牌交给 Caddy。当根路径请求没有 Harness cookie 时，Caddy 使用 Serve 注入的 `TAILSCALE_OWNER` 身份交换该令牌，以取得绑定 authority 的浏览器 cookie；身份代理还必须拒绝非属主登录并允许属主，然后 systemd 才报告就绪。安装过程会把解析到的 Node.js 与 pnpm 路径写入 unit，因此重启不依赖 systemd 的默认 PATH。root 属主的启动器、代理配置与校验辅助程序位于 `/usr/local/libexec/deepseek-harness`；服务仍以非 root 用户直接运行检出。生成的后端启动器保持不可执行并由 Bash 读取运行，因此支持使用 `noexec` 挂载的 systemd 运行时目录。就绪后，`start.sh` 与 `status` 都打印干净的公开 URL，已启用的服务则继续在后台运行；浏览器不再需要进程启动令牌。没有缓存 sudo 授权的非交互调用方会在更改 Docker、systemd 或 Serve 状态之前失败，并得到需要交互运行的确切命令。更新时会先停止已有且所有权匹配的原生服务，再替换检出产物；构建失败则重新启动已安装服务。
+启动器仅为缺失的 Caddy 包安装、确切的自有 Docker 接管、systemd、root 属主配置与所选 VPN 设置使用 `sudo`。没有显式或已保存的 provider 时，它会优先于 Tailscale 选择已连接的 NetBird 网络；两者均未连接时会报告错误。它会为每个安装阶段显示实时旋转进度与耗时，同时隐藏成功的包管理器、构建与 unit 校验细节；执行 `DSH_VERBOSE=1 ./start.sh` 可在诊断时流式显示这些命令。它通过用户登录 shell 在原检出中完成准备，保留该用户的补充组，在切换前构建，并等待 systemd `Type=notify` 就绪结果。监听器检查接受任意 HTTP 响应，因为受令牌保护的根路径会拒绝未认证请求。监督进程会在其私有运行时目录中捕获后端启动 URL，并且只把其中的令牌交给 Caddy。当根路径请求没有 Harness cookie 时，Caddy 使用 Serve 注入的 `TAILSCALE_OWNER` 身份交换该令牌，以取得绑定 authority 的浏览器 cookie；身份代理还必须拒绝非属主登录并允许属主，然后 systemd 才报告就绪。安装过程会把解析到的 Node.js 与 pnpm 路径写入 unit，因此重启不依赖 systemd 的默认 PATH。root 属主的启动器、代理配置与校验辅助程序位于 `/usr/local/libexec/deepseek-harness`；服务仍以非 root 用户直接运行检出。生成的后端启动器保持不可执行并由 Bash 读取运行，因此支持使用 `noexec` 挂载的 systemd 运行时目录。就绪后，`start.sh` 与 `status` 都打印干净的公开 URL，已启用的服务则继续在后台运行；浏览器不再需要进程启动令牌。没有缓存 sudo 授权的非交互调用方会在更改 Docker、systemd 或 Serve 状态之前失败，并得到需要交互运行的确切命令。更新时会先停止已有且所有权匹配的原生服务，再替换检出产物；构建失败则重新启动已安装服务。provider 转换期间，如果路由在所有权检查后消失，清理会视为成功；其他清理失败会重新启动已安装服务并报告错误。执行 `install` 时，如果部署状态除缺少 `provider` 外均有效，安装器会从匹配的 root 属主 unit 推导已安装 provider；其他命令会拒绝这份不完整状态。
 
 当该检出的确切 Docker 部署正在运行时，`start.sh` 会在完成原生构建与所有权检查后调用本地 Docker CLI，移除其 `dsh` 与 `auth-proxy` 容器再启动原生服务；命名 volume 会保留。它不会构建或启动 Docker，纯原生宿主无需 Docker，并会保留其他检出的容器。其他监听器、VPN operator 与 Serve 路由都会导致失败，不会被替换。接管是单向的：如果原生服务随后未能就绪，请修正报告的错误后重新运行 `start.sh`；已移除的容器不会重建。
 
@@ -65,7 +65,7 @@ DSH_VPN_PROVIDER=netbird ./start.sh
 
 | 设置                      | 默认值                 | 含义                            |
 | ------------------------- | ---------------------- | ------------------------------- |
-| `DSH_VPN_PROVIDER`        | `tailscale`            | VPN 传输：`tailscale` 或 `netbird` |
+| `DSH_VPN_PROVIDER`        | 自动检测；优先 NetBird | VPN 传输：`tailscale` 或 `netbird` |
 | `DSH_BACKEND_PORT`        | `4081`                 | `dsh web` 的回环端口            |
 | `DSH_PUBLIC_PORT`         | `4080`                 | Caddy 端口；Tailscale 模式下的 Serve 回环目标 |
 | `DSH_HTTPS_PORT`          | `443`                  | 宿主 Tailscale Serve HTTPS 端口 |
@@ -77,7 +77,7 @@ DSH_VPN_PROVIDER=netbird ./start.sh
 
 ## NetBird 访问
 
-安装时设置 `DSH_VPN_PROVIDER=netbird`，或编辑 root 属主的配置文件后重新运行 `./start.sh install`。宿主必须已通过 `netbird up` 连接；启动器不会加入网络，也不会保存 setup key。Caddy 会绑定宿主的 NetBird IPv4 地址，并打印 `http://<netbird-ip>:4080/` URL。NetBird ACL 策略控制哪些 peer 可以访问，Harness 启动令牌再交换为普通浏览器 cookie。NetBird 没有 Tailscale 注入的用户登录标识的本地等价物，因此直接 mesh 模式不会在代理层声称逐用户身份。
+没有显式或已保存的 provider 时，安装过程会选择已连接的 NetBird。设置 `DSH_VPN_PROVIDER=netbird` 可覆盖自动检测；也可以编辑 root 属主的配置文件后重新运行 `./start.sh install`。宿主必须已通过 `netbird up` 连接；启动器不会加入网络，也不会保存 setup key。Caddy 会绑定宿主的 NetBird IPv4 地址，并且只打印可访问的 `http://<netbird-ip>:4080/` URL。转发浏览器认证与 API 请求时，它会保留包含非默认端口在内的完整 authority。NetBird ACL 策略控制哪些 peer 可以访问，Harness 启动令牌再交换为普通浏览器 cookie。NetBird 没有 Tailscale 注入的用户登录标识的本地等价物，因此直接 mesh 模式不会在代理层声称逐用户身份。
 
 ## Tailscale 授权
 

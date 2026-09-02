@@ -54,7 +54,8 @@ describe('Docker Tailscale proxy', () => {
     expect(ownerMatcher).toContain('expression `{env.DSH_VPN_PROVIDER} == "tailscale"`')
     expect(ownerMatcher).toContain('path /api /api/*')
     expect(ownerMatcher).not.toContain('/api/settings/*')
-    expect(ownerProxy).not.toContain('header_up Host 127.0.0.1')
+    expect(ownerProxy).not.toContain('header_up Host')
+    expect(config).not.toContain('header_up Host')
     expect(config).toContain('handle @api {\n\t\trespond 403')
   })
 
