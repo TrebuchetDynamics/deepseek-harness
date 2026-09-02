@@ -11,7 +11,7 @@
  * zero self-made hooks.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, Ref } from 'react'
 import type {
   PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
 } from '@deepseek-ai/dsh-client-ui-slots'
@@ -28,13 +28,13 @@ export type AppFrameProps =
   & PropsLocale<'common'>
 
 /** Center column grid item (session-body building block). */
-function CenterColumn(props: { children?: ReactNode }) {
-  return <div className={css.centerCol}>{props.children}</div>
+function CenterColumn(props: { children?: ReactNode; elementRef: Ref<HTMLDivElement> }) {
+  return <div ref={props.elementRef} className={css.centerCol}>{props.children}</div>
 }
 
 /** Details column grid item; width 0 keeps the subtree mounted (never unmount on close). */
-function DetailsColumn(props: { children?: ReactNode }) {
-  return <div className={css.detailsCol}>{props.children}</div>
+function DetailsColumn(props: { children?: ReactNode; elementRef: Ref<HTMLDivElement> }) {
+  return <div ref={props.elementRef} className={css.detailsCol}>{props.children}</div>
 }
 
 /**
@@ -107,6 +107,8 @@ export function AppFrame({
   })
   const frameRef = useRef<HTMLDivElement | null>(null)
   const sidebarRef = useRef<HTMLDivElement | null>(null)
+  const centerRef = useRef<HTMLDivElement | null>(null)
+  const detailsRef = useRef<HTMLDivElement | null>(null)
   const fabRef = useRef<HTMLButtonElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
 
@@ -186,6 +188,8 @@ export function AppFrame({
   useLayoutEffect(() => {
     const sidebar = sidebarRef.current
     if (sidebar !== null) sidebar.inert = narrow && sidebarCollapsed
+    if (centerRef.current !== null) centerRef.current.inert = sidebarOpen
+    if (detailsRef.current !== null) detailsRef.current.inert = sidebarOpen
     if (sidebarOpen && !wasSidebarOpen.current) sidebar?.focus()
     if (!sidebarOpen && wasSidebarOpen.current) fabRef.current?.focus()
     wasSidebarOpen.current = sidebarOpen
@@ -193,7 +197,36 @@ export function AppFrame({
   useEffect(() => {
     if (!sidebarOpen) return
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') closeSidebar()
+      if (event.key === 'Escape') {
+        closeSidebar()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const sidebar = sidebarRef.current
+      if (sidebar === null) return
+      const focusable = Array.from(sidebar.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter(element => element.getAttribute('aria-hidden') !== 'true')
+      if (focusable.length === 0) {
+        event.preventDefault()
+        sidebar.focus()
+        return
+      }
+      const active = document.activeElement
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (first === undefined || last === undefined) return
+      if (active === sidebar || !sidebar.contains(active)) {
+        event.preventDefault()
+        const target = event.shiftKey ? last : first
+        target.focus()
+      } else if (event.shiftKey && active === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => { document.removeEventListener('keydown', onKeyDown) }
@@ -214,6 +247,7 @@ export function AppFrame({
         {...documentTitle === undefined ? {} : { title: documentTitle }}
       />
       <div
+        id="app-sidebar"
         ref={sidebarRef}
         className={css.sidebarCol}
         tabIndex={-1}
@@ -236,8 +270,8 @@ export function AppFrame({
             the shell's own pending rendering. The conversation
             is session-maybe; SessionProvider withholds the strict details
             entry while no session is current. */}
-        <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
-        <DetailsColumn>
+        <CenterColumn elementRef={centerRef}>{renderSlot('conversation', {})}</CenterColumn>
+        <DetailsColumn elementRef={detailsRef}>
           <SessionProvider>{renderSlot('details', {})}</SessionProvider>
         </DetailsColumn>
       </>
@@ -255,7 +289,7 @@ export function AppFrame({
           this button draws the sidebar in as a drawer. Hidden while the
           drawer is open; the backdrop dims the frame without it. */}
       {narrow && !sidebarOpen && (
-        <button ref={fabRef} type="button" className={css.fab} aria-label="Open sidebar" onClick={openSidebar}>
+        <button ref={fabRef} type="button" className={css.fab} aria-label={t('sidebar.open')} aria-controls="app-sidebar" aria-expanded="false" onClick={openSidebar}>
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
             <rect x="3" y="6" width="18" height="2.4" rx="1.2" fill="currentColor" />
             <rect x="3" y="10.8" width="18" height="2.4" rx="1.2" fill="currentColor" />

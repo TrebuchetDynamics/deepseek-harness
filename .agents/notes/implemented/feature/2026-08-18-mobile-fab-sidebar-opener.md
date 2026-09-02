@@ -12,7 +12,7 @@ On narrow viewports the auto-collapsed sidebar stayed as a 56px control rail (SI
 
 ## Decision
 
-computeColumns takes a narrow flag: a closed sidebar resolves to 0 (instead of the 56px rail) when narrow, while the desktop closed state keeps the rail. On narrow, AppFrame renders a floating circular opener button (.fab, safe-area-inset positioned top-left) whenever the sidebar is closed; it expands through the layout store's new openSidebar action (narrow-only: sets narrowExpanded; a no-op wide) and is hidden while the drawer is open so the dimmed backdrop reads clean underneath. The hidden narrow sidebar is inert and `aria-hidden`; opening moves focus into the drawer, while backdrop, Escape, and sidebar-action dismissal restore focus to the opener. The desktop rail and drag handle are unchanged.
+computeColumns takes a narrow flag: a closed sidebar resolves to 0 (instead of the 56px rail) when narrow, while the desktop closed state keeps the rail. On narrow, AppFrame renders a floating circular opener button (.fab, safe-area-inset positioned top-left) whenever the sidebar is closed; it expands through the layout store's new openSidebar action (narrow-only: sets narrowExpanded; a no-op wide) and is hidden while the drawer is open so the dimmed backdrop reads clean underneath. The hidden narrow sidebar is inert and `aria-hidden`; opening moves focus into the drawer, makes the center and details columns inert, and contains Tab navigation inside the sidebar, while backdrop, Escape, and sidebar-action dismissal restore focus to the opener. The desktop rail and drag handle are unchanged.
 
 ## Alternatives considered
 
@@ -24,4 +24,4 @@ computeColumns takes a narrow flag: a closed sidebar resolves to 0 (instead of t
 
 ## Consequences
 
-On phones the sidebar occupies zero width when closed; a top-left floating button draws it in as a drawer and hides while it is open. Desktop keeps its 56px rail and drag handle. The columns solver, layout-store, app-frame client specs, and mobile browser scenario cover zero-width collapse, inert/focus behavior, opener lifecycle, drawer geometry, and `openSidebar`'s wide no-op; the ui-layout README documents the narrow hidden + opener behavior.
+On phones the sidebar occupies zero width when closed; a top-left floating button draws it in as a drawer and hides while it is open. Desktop keeps its 56px rail and drag handle. The columns solver, layout-store, app-frame client specs, and mobile browser scenario cover zero-width collapse, background inertness, contained focus, opener lifecycle, drawer geometry, and `openSidebar`'s wide no-op; the ui-layout README documents the narrow hidden + opener behavior.

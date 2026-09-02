@@ -706,6 +706,9 @@ describe.skipIf(MODE === 'record')('web e2e: active Schedule catalog', () => {
 
     await openSession(page, CATALOG_TITLE)
     const parentAgent = await liveAgent(scaffold, CATALOG_SESSION_ID)
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Open sidebar' }).waitFor()
+    await page.setViewportSize({ width: 400, height: 900 })
 
     const trigger = page.getByRole('button', { name: '3 reminders' })
     await trigger.waitFor({ timeout: 15_000 })
@@ -801,8 +804,11 @@ describe.skipIf(MODE === 'record')('web e2e: active Schedule catalog', () => {
       await captureStableAria(page, '[aria-label="Active reminders"]', scaffold.workspaceCwd),
       MODE,
     )
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Open sidebar' }).click()
 
     const sessionRow = page.getByRole('treeitem', { name: new RegExp(CATALOG_TITLE) })
+    await sessionRow.waitFor()
     expect(await sessionRow.getByRole('img', { name: ACTIVE_SCHEDULE_LABEL }).count()).toBe(1)
     for (const id of Object.values(CATALOG_IDS)) {
       parentAgent.session.append('schedule/change', { version: 1, operation: 'delete', id })

@@ -173,8 +173,9 @@
   width: 44px;
   height: 44px;
   padding: 0;
-  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border: 0.5px solid var(--dsw-alias-border-l2-darkmode-thin);
   border-radius: 50%;
+  corner-shape: round;
   background: var(--dsw-alias-button-floating-fill);
   color: var(--dsw-alias-label-primary);
   cursor: pointer;

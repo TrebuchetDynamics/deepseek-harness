@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-computeColumns 新增 narrow 标志：侧边栏关闭时，窄屏解析为 0（而非 56px 控制栏），桌面端关闭态仍保留控制栏。在窄屏下，每当侧边栏关闭，AppFrame 就渲染一个顶左定位的圆形浮动按钮（.fab，基于 safe-area-inset 定位）；点击它通过布局 store 新增的 openSidebar action（仅窄屏生效：置位 narrowExpanded；宽屏为 no-op）展开抽屉，并在抽屉打开时隐藏，使变暗背景下方的画面保持整洁。隐藏的窄屏侧边栏会设置为 inert 与 `aria-hidden`；打开时焦点进入抽屉，通过背景、Escape 或侧边栏操作关闭时，焦点会回到唤起按钮。桌面端控制栏与拖动手柄保持不变。
+computeColumns 新增 narrow 标志：侧边栏关闭时，窄屏解析为 0（而非 56px 控制栏），桌面端关闭态仍保留控制栏。在窄屏下，每当侧边栏关闭，AppFrame 就渲染一个顶左定位的圆形浮动按钮（.fab，基于 safe-area-inset 定位）；点击它通过布局 store 新增的 openSidebar action（仅窄屏生效：置位 narrowExpanded；宽屏为 no-op）展开抽屉，并在抽屉打开时隐藏，使变暗背景下方的画面保持整洁。隐藏的窄屏侧边栏会设置为 inert 与 `aria-hidden`；打开时焦点进入抽屉、主栏与详情栏变为 inert，Tab 导航也会限制在侧边栏内；通过背景、Escape 或侧边栏操作关闭时，焦点会回到唤起按钮。桌面端控制栏与拖动手柄保持不变。
 
 ## 备选方案
 
@@ -24,4 +24,4 @@ computeColumns 新增 narrow 标志：侧边栏关闭时，窄屏解析为 0（�
 
 ## 影响
 
-手机上侧边栏关闭时不占宽度；顶左浮动按钮以抽屉形式将其唤出，并在抽屉打开时隐藏。桌面端保留 56px 控制栏与拖动手柄。columns 求解器、layout-store、app-frame 客户端测试与移动端浏览器场景覆盖零宽折叠、inert/焦点行为、唤起按钮生命周期、抽屉几何以及 `openSidebar` 的宽屏 no-op；ui-layout README 已记录窄屏隐藏＋唤起行为。
+手机上侧边栏关闭时不占宽度；顶左浮动按钮以抽屉形式将其唤出，并在抽屉打开时隐藏。桌面端保留 56px 控制栏与拖动手柄。columns 求解器、layout-store、app-frame 客户端测试与移动端浏览器场景覆盖零宽折叠、背景 inert、受限焦点、唤起按钮生命周期、抽屉几何以及 `openSidebar` 的宽屏 no-op；ui-layout README 已记录窄屏隐藏＋唤起行为。

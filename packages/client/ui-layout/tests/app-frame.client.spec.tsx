@@ -54,13 +54,19 @@ function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapsho
   return function useSelector<S>(sel: (s: T) => S): S { return sel(useSyncExternalStore(inst.subscribe, inst.getSnapshot)) }
 }
 
-function mountFrame() {
+const translate: AppFrameProps['t'] = key => key === 'brand.localBuild'
+  ? 'DSH Local Build'
+  : key === 'sidebar.open' ? 'Open sidebar' : key
+
+function mountFrame(t: AppFrameProps['t'] = translate, focusableSidebar = false) {
   window.innerWidth = frameWidth // first-render viewport source before the observer fires
   const instance = createLayoutStore().create()
   const slotCalls: { key: string; props: unknown }[] = []
   const renderSlot = ((key: string, owner: object) => {
     slotCalls.push({ key, props: owner })
-    if (key === 'sidebar') return <div data-testid="sidebar-content" />
+    if (key === 'sidebar') return focusableSidebar
+      ? <><button data-testid="sidebar-first">First</button><button data-testid="sidebar-last">Last</button></>
+      : <div data-testid="sidebar-content" />
     if (key === 'conversation') return <div data-testid="center-content" />
     if (key === 'details') return <div data-testid="details-content" />
     if (key === 'conversation.empty') return <div data-testid="empty-content" />
@@ -100,7 +106,7 @@ function mountFrame() {
       useSessionPendingInteraction={useSessionPendingInteraction}
       useWorkspaces={((sel: (s: WorkspaceSnapshot) => unknown) => sel(workspaceState)) as never}
       SessionProvider={SessionProviderStub}
-      t={key => key === 'brand.localBuild' ? 'DSH Local Build' : key}
+      t={t}
     />
   )
   const utils = render(element())
@@ -323,6 +329,12 @@ describe('AppFrame', () => {
 })
 
 describe('AppFrame — narrow-viewport auto-collapse', () => {
+  it('localizes the floating sidebar opener accessibility name', () => {
+    frameWidth = 980
+    const { getByRole } = mountFrame(key => key === 'sidebar.open' ? '打开侧边栏' : key)
+    expect(getByRole('button', { name: '打开侧边栏' })).toBeTruthy()
+  })
+
   it('mounts collapsed below the breakpoint with no sidebar handle', () => {
     frameWidth = 980
     const { frame, slotCalls } = mountFrame()
@@ -406,18 +418,49 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
     frameWidth = 980
     const { frame, instance } = mountFrame()
     const sidebar = frame.querySelector<HTMLElement>('[class*="sidebarCol"]')!
+    const center = frame.querySelector<HTMLElement>('[class*="centerCol"]')!
+    const details = frame.querySelector<HTMLElement>('[class*="detailsCol"]')!
     const fab = frame.querySelector<HTMLButtonElement>('button[aria-label="Open sidebar"]')!
+    expect(fab.getAttribute('aria-controls')).toBe('app-sidebar')
     expect(sidebar.inert).toBe(true)
     expect(sidebar.getAttribute('aria-hidden')).toBe('true')
     act(() => { fireEvent.click(fab) })
     expect(frame.hasAttribute('data-drawer')).toBe(true)
     expect(sidebar.inert).toBe(false)
+    expect(center.inert).toBe(true)
+    expect(details.inert).toBe(true)
     expect(document.activeElement).toBe(sidebar)
     act(() => { instance.actions.toggleSidebar() })
     const restored = frame.querySelector<HTMLButtonElement>('button[aria-label="Open sidebar"]')
     expect(frame.hasAttribute('data-drawer')).toBe(false)
+    expect(center.inert).toBe(false)
+    expect(details.inert).toBe(false)
     expect(restored).toBeTruthy()
     expect(document.activeElement).toBe(restored)
+  })
+
+  it('keeps keyboard focus inside the open narrow drawer', () => {
+    frameWidth = 980
+    const { frame } = mountFrame(translate, true)
+    const fab = frame.querySelector<HTMLButtonElement>('button[aria-label="Open sidebar"]')!
+    act(() => { fireEvent.click(fab) })
+    const sidebar = frame.querySelector<HTMLElement>('[class*="sidebarCol"]')!
+    const first = frame.querySelector<HTMLButtonElement>('[data-testid="sidebar-first"]')!
+    const last = frame.querySelector<HTMLButtonElement>('[data-testid="sidebar-last"]')!
+
+    expect(document.activeElement).toBe(sidebar)
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+    })
+    expect(document.activeElement).toBe(first)
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }))
+    })
+    expect(document.activeElement).toBe(last)
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+    })
+    expect(document.activeElement).toBe(first)
   })
 
   it('renders no floating opener on a wide viewport', () => {

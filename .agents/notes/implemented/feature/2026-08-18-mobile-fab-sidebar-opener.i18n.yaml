@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-mobile-fab-sidebar-opener.md
-2026-08-18-mobile-fab-sidebar-opener.md: 687056209466d2064a049b09520e031961f64148
-2026-08-18-mobile-fab-sidebar-opener.zh.md: 0e9a32904016654e60fc7a38f34009f98f2fc6a1
+2026-08-18-mobile-fab-sidebar-opener.md: ddbc2f1d624aa50d786329ad497ebf4fdb71647d
+2026-08-18-mobile-fab-sidebar-opener.zh.md: 5069608dea09d3d3f12e9633e9d44fd4a6c9d3ba

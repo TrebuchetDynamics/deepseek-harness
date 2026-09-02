@@ -174,7 +174,10 @@ export const InputBar = memo(function InputBar({
   // perform — switching to a longer draft otherwise leaves the caret (restored
   // at the draft's end) off screen.
   useEffect(() => {
-    if (locked || editor === null || window.matchMedia('(pointer: coarse)').matches) return
+    const matchMedia: unknown = Reflect.get(window, 'matchMedia')
+    const coarsePointer = typeof matchMedia === 'function'
+      && (Reflect.apply(matchMedia, window, ['(pointer: coarse)']) as MediaQueryList).matches
+    if (locked || editor === null || coarsePointer) return
     // Lexical's focus() restores the editor selection but never calls the DOM
     // focus itself; preventScroll keeps the conversation scrollport still.
     editor.getRootElement()?.focus({ preventScroll: true })

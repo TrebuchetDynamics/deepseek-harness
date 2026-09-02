@@ -128,6 +128,13 @@ describe('web e2e: mobile sidebar drawer', () => {
     expect(metrics.center).toEqual(metrics.frame)
     expect(metrics.sidebar).toEqual({ ...metrics.frame, width: 280 })
     expect(metrics.scrim).toEqual({ ...metrics.frame, opacity: '1' })
+    expect(await page.locator('[class*="centerCol"]').evaluate(element => (element as HTMLElement).inert)).toBe(true)
+    expect(await page.locator('[class*="detailsCol"]').evaluate(element => (element as HTMLElement).inert)).toBe(true)
+    await page.keyboard.press('Tab')
+    expect(await page.evaluate(() => {
+      const sidebar = document.querySelector('[class*="sidebarCol"]')
+      return sidebar?.contains(document.activeElement) ?? false
+    })).toBe(true)
     await compareOrRefreshGolden(
       GEOMETRY_EXPECTED,
       renderGeometry(metrics),
