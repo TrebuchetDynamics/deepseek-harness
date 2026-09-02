@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import UserQuestionService, {
   UserQuestionError,
   type AskUserQuestionAnswer,
@@ -34,6 +35,13 @@ function stubAgent(id: string, delegationDepth = 0): Agent {
     id: agentId,
     session: { id: agentId, header: { delegationDepth } },
   } as unknown as Agent
+}
+
+function inboxMessage(kind: 'user' | 'plugin') {
+  return createUserMessage({
+    content: [{ type: 'text', text: 'next prompt' }],
+    source: kind === 'user' ? { kind } : { kind, plugin: 'test' },
+  })
 }
 
 describe('UserQuestionService', () => {
@@ -229,6 +237,117 @@ describe('UserQuestionService', () => {
     })
 
     expect(result).toEqual({ answers: [{ id: 'confirm', selected: ['yes'] }] })
+  })
+
+  it('cancels every pending ask for the exact agent when an admitted user prompt enters its inbox', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserQuestionService)
+    const agent = stubAgent('asked')
+    const other = stubAgent('other')
+    ctx.agents.enter(agent, undefined)
+    ctx.agents.enter(other, undefined)
+    const requests: AskUserQuestionRequest[] = []
+    registerAnswerer(ctx, {
+      ask(request) {
+        requests.push(request)
+        return new Promise((_resolve, reject) => {
+          request.signal?.addEventListener('abort', () => {
+            const reason: unknown = request.signal?.reason as unknown
+            reject(reason instanceof Error ? reason : new Error('question aborted', { cause: reason }))
+          }, { once: true })
+        })
+      },
+    })
+
+    const first = ctx.userQuestions.ask({ questions: [{ id: 'first', question: 'First?' }], agent })
+    const second = ctx.userQuestions.ask({ questions: [{ id: 'second', question: 'Second?' }], agent })
+    const untouched = ctx.userQuestions.ask({ questions: [{ id: 'other', question: 'Other?' }], agent: other })
+    await vi.waitFor(() => { expect(requests).toHaveLength(3) })
+
+    ctx.emit('agent/inbox/inserted', { agent, message: inboxMessage('user') })
+
+    await expect(first).rejects.toMatchObject({ code: 'ASK_CANCELLED' })
+    await expect(second).rejects.toMatchObject({ code: 'ASK_CANCELLED' })
+    expect(requests[2]?.signal?.aborted).toBe(false)
+    ctx.emit('agent/inbox/inserted', { agent: other, message: inboxMessage('user') })
+    await expect(untouched).rejects.toMatchObject({ code: 'ASK_CANCELLED' })
+  })
+
+  it('does not cancel for a non-user insertion, a rejected prompt with no insertion, or another agent', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserQuestionService)
+    const agent = stubAgent('asked')
+    const other = stubAgent('other')
+    ctx.agents.enter(agent, undefined)
+    ctx.agents.enter(other, undefined)
+    const completion = Promise.withResolvers<AskUserQuestionAnswer>()
+    let request: AskUserQuestionRequest | undefined
+    registerAnswerer(ctx, { ask: (value) => { request = value; return completion.promise } })
+    const answer = ctx.userQuestions.ask({ questions: [{ id: 'choice', question: 'Choose?' }], agent })
+    await vi.waitFor(() => { expect(request).toBeDefined() })
+
+    ctx.emit('agent/inbox/inserted', { agent, message: inboxMessage('plugin') })
+    ctx.emit('agent/inbox/inserted', { agent: other, message: inboxMessage('user') })
+    // A Host-rejected prompt never enters the Agent inbox, so it emits no insertion.
+    expect(request?.signal?.aborted).toBe(false)
+
+    const value = { answers: [{ id: 'choice', selected: ['keep waiting'] }] }
+    completion.resolve(value)
+    await expect(answer).resolves.toEqual(value)
+  })
+
+  it('does not let a provider answer win after a user prompt supersedes the ask', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserQuestionService)
+    const agent = stubAgent('asked')
+    ctx.agents.enter(agent, undefined)
+    const completion = Promise.withResolvers<AskUserQuestionAnswer>()
+    registerAnswerer(ctx, { ask: () => completion.promise })
+    const answer = ctx.userQuestions.ask({ questions: [{ id: 'choice', question: 'Choose?' }], agent })
+    await Promise.resolve()
+
+    ctx.emit('agent/inbox/inserted', { agent, message: inboxMessage('user') })
+    completion.resolve({ answers: [{ id: 'choice', selected: ['late'] }] })
+
+    await expect(answer).rejects.toMatchObject({ code: 'ASK_CANCELLED' })
+  })
+
+  it('removes settled asks and the inbox listener with their owners', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const fiber = ctx.plugin(UserQuestionService)
+    await fiber
+    const service = ctx.userQuestions
+    const agent = stubAgent('asked')
+    ctx.agents.enter(agent, undefined)
+    const completions: Array<PromiseWithResolvers<AskUserQuestionAnswer>> = []
+    const requests: AskUserQuestionRequest[] = []
+    registerAnswerer(ctx, {
+      ask(request) {
+        requests.push(request)
+        const completion = Promise.withResolvers<AskUserQuestionAnswer>()
+        completions.push(completion)
+        return completion.promise
+      },
+    })
+
+    const settled = service.ask({ questions: [{ id: 'done', question: 'Done?' }], agent })
+    await vi.waitFor(() => { expect(completions).toHaveLength(1) })
+    completions[0]?.resolve({ answers: [{ id: 'done', selected: ['yes'] }] })
+    await settled
+    ctx.emit('agent/inbox/inserted', { agent, message: inboxMessage('user') })
+    expect(requests[0]?.signal?.aborted).toBe(false)
+
+    const pending = service.ask({ questions: [{ id: 'pending', question: 'Pending?' }], agent })
+    await vi.waitFor(() => { expect(completions).toHaveLength(2) })
+    await fiber.dispose()
+    ctx.emit('agent/inbox/inserted', { agent, message: inboxMessage('user') })
+    expect(requests[1]?.signal?.aborted).toBe(false)
+    completions[1]?.resolve({ answers: [{ id: 'pending', selected: ['after disposal'] }] })
+    await expect(pending).resolves.toMatchObject({ answers: [{ id: 'pending' }] })
   })
 
   it('rejects a supplied agent when no live registry can attest it', async () => {

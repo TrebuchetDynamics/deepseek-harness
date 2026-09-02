@@ -90,9 +90,10 @@ export class UserQuestionService extends Service {
    * @param request Questions, owner agent, and abort signal.
    * @returns The answer chosen or typed by the human.
    * @throws {UserQuestionError} code `ASK_ABORTED` when the supplied signal
-   *   is already or becomes aborted, `CALLER_NOT_LIVE` when a supplied agent
-   *   is not the registry's exact live instance, or `DELEGATED_CALLER` when
-   *   that live agent is owned by another agent.
+   *   is already or becomes aborted, `ASK_CANCELLED` when a later admitted user
+   *   prompt supersedes this agent's pending ask, `CALLER_NOT_LIVE` when a
+   *   supplied agent is not the registry's exact live instance, or
+   *   `DELEGATED_CALLER` when that live agent is owned by another agent.
    */
   async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
     if (request.signal?.aborted) {
@@ -159,7 +160,7 @@ export class UserQuestionService extends Service {
       }
     }
     try {
-      return await (agent === undefined
+      const answer = await (agent === undefined
         ? this.ctx.waterfall('user-questions/request', dispatched, noAnswerer)
         : this.ctx.waterfall(
           scopeTarget(agent, agent),
@@ -167,6 +168,8 @@ export class UserQuestionService extends Service {
           dispatched,
           noAnswerer,
         ))
+      if (superseded?.signal.aborted) throw superseded.signal.reason
+      return answer
     } catch (error) {
       const restored = restoreUserQuestionError(error)
       if (superseded?.signal.aborted) {

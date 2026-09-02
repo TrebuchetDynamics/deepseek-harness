@@ -306,8 +306,9 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         if (synthetic?.type !== 'tool/result' || synthetic.data.message.content[0].content[0]?.type !== 'text') {
           throw new Error('expected a text tool result')
         }
-        expect(synthetic.data.message.content[0].content[0].text).toContain('If the call was read-only or idempotent, retry it.')
-        expect(synthetic.data.message.content[0].content[0].text).toContain('Ask the user only when external state cannot be verified safely or a human-owned choice is required.')
+        expect(synthetic.data.message.content[0].content[0].text).toBe(
+          'The tool call was interrupted after starting; its outcome is unknown. Continue without asking solely because of this interruption. Retry read-only or idempotent calls. Before retrying a call that may have side effects, verify whether it completed; ask the user only when safe verification is impossible or a human-owned choice is required.',
+        )
         const resumed = Session.create(m.id, loaded.events, loaded.meta)
         const resumedResult = resumed.deriveMessages().find(message => message.content.some(block => block.type === 'tool-result'))
         expect(resumedResult?.content[0]).toMatchObject({

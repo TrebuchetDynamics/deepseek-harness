@@ -36,7 +36,7 @@ kind: "package-reference"
 <a id="provider-contract"></a>
 ## 提供方约定
 
-本插件不持有自身状态：`apply` 通过 `ctx.sessionTitle.register()` 注册一个提供方，使用 `automatic: 'all-prompts'`；`generate()` 返回最新合格消息的归一化前导词，并将其归属于该消息的确切 seq。覆盖、取消、归一化与日志接受均由服务负责。
+本插件不持有自身状态：`apply` 通过 `ctx.sessionTitle.register()` 注册一个提供方，使用 `automatic: 'all-prompts'`；`generate()` 返回最新合格消息的归一化前导词，并将其归属于该消息的确切 seq。覆盖、取消、归一化与日志接受均由服务负责。不发布 invariant 配套入口，因为这些委托操作不会留下可能发生偏离的独立观测关系。
 
 -----
 

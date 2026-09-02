@@ -343,7 +343,6 @@
       "@deepseek-ai/dsh-session-title-all-prompts-llm": ["./packages/session/session-title-all-prompts-llm/src"],
       "@deepseek-ai/dsh-session-title-first-prompt-llm": ["./packages/session/session-title-first-prompt-llm/src"],
       "@deepseek-ai/dsh-session-title-latest-message": ["./packages/session/session-title-latest-message/src"],
-      "@deepseek-ai/dsh-session-title-latest-message/invariant": ["./packages/session/session-title-latest-message/src/invariant.ts"],
       "@deepseek-ai/dsh-session-title-llm": ["./packages/session/session-title-llm/src"],
       "@deepseek-ai/dsh-session-turn-outline": ["./packages/session/session-turn-outline/src"],
       "@deepseek-ai/dsh-settings": ["./packages/settings/settings/src"],

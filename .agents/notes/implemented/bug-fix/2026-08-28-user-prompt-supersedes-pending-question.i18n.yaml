@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-28-user-prompt-supersedes-pending-question.md
+2026-08-28-user-prompt-supersedes-pending-question.md: 29ae9a45a45f7b0c1dc6e81a9dc5b5c0efe07473
+2026-08-28-user-prompt-supersedes-pending-question.zh.md: f4ddb35bf47e2fb4d23e392851d05f49bf94dc97

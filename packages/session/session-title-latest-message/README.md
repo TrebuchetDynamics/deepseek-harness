@@ -36,7 +36,7 @@ Both limits are required; the plugin supplies no defaults. The shared service st
 <a id="provider-contract"></a>
 ## Provider contract
 
-The plugin owns no state of its own: `apply` registers one provider through `ctx.sessionTitle.register()` with `automatic: 'all-prompts'`, and `generate()` returns the newest eligible message's normalized leading words attributed to that message's exact seq. The service owns supersession, cancellation, normalization, and log acceptance.
+The plugin owns no state of its own: `apply` registers one provider through `ctx.sessionTitle.register()` with `automatic: 'all-prompts'`, and `generate()` returns the newest eligible message's normalized leading words attributed to that message's exact seq. The service owns supersession, cancellation, normalization, and log acceptance. No invariant companion is published because these delegated operations leave no independently observed relationship that can diverge.
 
 -----
 

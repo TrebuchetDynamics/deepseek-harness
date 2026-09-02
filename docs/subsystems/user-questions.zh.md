@@ -142,9 +142,10 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
  * @param request Questions, owner agent, and abort signal.
  * @returns The answer chosen or typed by the human.
  * @throws {UserQuestionError} code `ASK_ABORTED` when the supplied signal
- *   is already or becomes aborted, `CALLER_NOT_LIVE` when a supplied agent
- *   is not the registry's exact live instance, or `DELEGATED_CALLER` when
- *   that live agent is owned by another agent.
+ *   is already or becomes aborted, `ASK_CANCELLED` when a later admitted user
+ *   prompt supersedes this agent's pending ask, `CALLER_NOT_LIVE` when a
+ *   supplied agent is not the registry's exact live instance, or
+ *   `DELEGATED_CALLER` when that live agent is owned by another agent.
  */
 async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 ```

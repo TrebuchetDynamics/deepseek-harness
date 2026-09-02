@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import SessionTitleService from '@deepseek-ai/dsh-session-title'
+import SessionTitleService, { SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
 import type { SessionTitleProvider, SessionTitleProviderRequest } from '@deepseek-ai/dsh-session-title'
 import * as providerPlugin from '@deepseek-ai/dsh-session-title-latest-message'
 
@@ -43,6 +43,25 @@ describe('latest-message title provider', () => {
     const [, provider] = await capturedProvider()
     expect(provider.id).toBe('session-title-latest-message')
     expect(provider.automatic).toBe('all-prompts')
+  })
+
+  it('removes its provider registration when the plugin fiber unloads (HMR safety)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SessionTitleService, TITLE_CONFIG)
+    const fiber = await ctx.plugin(providerPlugin, PLUGIN_CONFIG)
+    const replacement: SessionTitleProvider = {
+      id: SessionTitleProviderId('replacement'),
+      automatic: 'first-prompt',
+      generate: async request => ({ title: 'replacement', messageSeqs: [request.messages[0]!.seq] }),
+    }
+    expect(() => ctx.sessionTitle.register(replacement)).toThrow(/already registered/)
+
+    await fiber.dispose()
+
+    const disposeReplacement = ctx.sessionTitle.register(replacement)
+    await disposeReplacement()
   })
 
   it('derives the title from the newest eligible message only', async () => {
