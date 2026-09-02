@@ -184,7 +184,7 @@ interface ShellProcess {
   signal: NodeJS.Signals | null
   /** Whether process startup failed before a child process existed. */
   infrastructureFailed?: boolean
-  /** Resolves when the underlying process closes (never rejects — a spawn failure settles as `killed` with the error on stderr). */
+  /** Resolves at process close; a spawn failure settles as `killed` with one synthetic `[stderr]` diagnostic. Never rejects. */
   readonly done: Promise<void>
   /** Sandbox facts, stamped once a confined process settles. */
   sandbox?: ShellSandboxInfo
@@ -239,7 +239,7 @@ Abstract bash execution service. Subclass, implement the abstract methods, and l
 Implementations must honor these semantics:
 
 - run rejects only for infrastructure failures. Nonzero exits, timeout kills, and abort kills resolve with a ShellRunResult.
-- start returns immediately; no timeout applies to background processes. `done` settles at process close and never rejects; spawn failures settle as `killed` with the error on stderr.
+- start returns immediately; no timeout applies to background processes. `done` settles at process close and never rejects; spawn failures settle as `killed` and expose one synthetic `[stderr]`-marked diagnostic read.
 - ShellProcess.readOutput is incremental: consecutive reads never repeat output. Lossy reads report truncation and available spill files.
 - A still-running background process is stopped and awaited when its owning composition tears down. With the subprocess seam that boundary is `ctx.subprocess` disposal, so a background process survives an executor-only reload.
 

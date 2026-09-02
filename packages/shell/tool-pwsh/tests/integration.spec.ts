@@ -52,6 +52,35 @@ function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(b => b.type === 'text').map(b => b.text).join('')
 }
 
+describe('pwsh tool infrastructure failures over the direct provider', () => {
+  it('keeps a failed background start readable through the real job_output tool', async () => {
+    const missingWorkdir = join(tmpdir(), `dsh-tool-pwsh-missing-${process.pid}-${Date.now()}`)
+    ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(LocalJobRegistry)
+    await ctx.plugin(ToolTasks)
+    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(BashEnvPlugin)
+    await ctx.plugin(PwshLocalExecutor, { graceMs: 200 })
+    await ctx.plugin(ToolPwsh)
+
+    const started = await call('pwsh', {
+      command: 'Write-Output never-runs',
+      description: 'exercise failed background start',
+      workdir: missingWorkdir,
+      run_in_background: true,
+    })
+    expect(started.isError).toBe(false)
+    if (started.isError) throw new Error('expected background pwsh acknowledgement')
+    const jobId = (started.value as { jobId: string }).jobId
+
+    const read = await call('job_output', { job_id: jobId, wait: true })
+    expect(text(read)).toContain('[stderr]\nspawn failed:')
+    expect(text(read)).toContain('[status: failed, process infrastructure failure]')
+  })
+})
+
 describe.skipIf(!hasPwsh)('pwsh tool over the real pwsh executor', () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'dsh-tool-pwsh-'))

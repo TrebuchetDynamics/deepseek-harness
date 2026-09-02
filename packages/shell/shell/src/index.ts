@@ -53,7 +53,7 @@ declare module '@deepseek-ai/cordis' {
  *   timeout kills, and abort kills resolve with a {@link ShellRunResult}.
  * - {@link start} returns immediately; no timeout applies to background
  *   processes. `done` settles at process close and never rejects; spawn
- *   failures settle as `killed` with the error on stderr.
+ *   failures settle as `killed` and expose one synthetic `[stderr]`-marked diagnostic read.
  * - {@link ShellProcess.readOutput} is incremental: consecutive reads never
  *   repeat output. Lossy reads report truncation and available spill files.
  * - A still-running background process is stopped and awaited when its

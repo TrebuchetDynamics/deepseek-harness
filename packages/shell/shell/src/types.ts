@@ -167,7 +167,7 @@ export interface ShellProcess {
   signal: NodeJS.Signals | null
   /** Whether process startup failed before a child process existed. */
   infrastructureFailed?: boolean
-  /** Resolves when the underlying process closes (never rejects — a spawn failure settles as `killed` with the error on stderr). */
+  /** Resolves at process close; a spawn failure settles as `killed` with one synthetic `[stderr]` diagnostic. Never rejects. */
   readonly done: Promise<void>
   /** Sandbox facts, stamped once a confined process settles. */
   sandbox?: ShellSandboxInfo

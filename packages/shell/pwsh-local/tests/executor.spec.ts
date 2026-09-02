@@ -436,13 +436,14 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.start (background process handles)'
     expect(['SIGTERM', 'SIGKILL']).toContain(proc.signal)
   })
 
-  it('a background spawn failure settles as killed with the error readable on stderr', async () => {
+  it('a background spawn failure settles as killed with a synthetic marked diagnostic', async () => {
     const { bash } = await setup()
     const proc = bash.start(bash.resolve({ command: 'Write-Output ok', workdir: '/nonexistent-dsh' }))
     // done resolves (never rejects) even though the process never ran.
     await expect(proc.done).resolves.toBeUndefined()
     expect(proc.status).toBe('killed')
-    expect(proc.readOutput().delta).toContain('spawn failed:')
+    expect(proc.infrastructureFailed).toBe(true)
+    expect(proc.readOutput().delta).toContain('[stderr]\nspawn failed:')
   })
 })
 

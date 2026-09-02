@@ -26,11 +26,13 @@ Status: implemented
 
 **提取完全共享的工具实现基座（抽象 shell 方言，两个薄叶子）。** 考虑后推迟：shell-env 提取与结构镜像（`render.ts`/`background.ts` 孪生）是它要立足的基础；在出现第三种方言或持久 PTY 孪生、让抽象的形态可观察之前，不做完整基座。
 
+**重新设计后台进程结算。** 作为独立生命周期变更推迟：启动失败目前结算为 `status: 'killed'` 加 `infrastructureFailed`，并公开一个合成的带标记诊断。用 exited／killed／failed 可辨联合取代这一复合状态会改变共享 Service Definition、两个本地与沙箱提供方、两个工具及录制输出；证据加固不需要扩大到该范围。
+
 ## 后果
 
 - bash 与 pwsh 工具在前台、后台与沙箱化 shell 工作上行为可互换（沙箱表层由 Windows ACL 沙箱决策负责），渲染器覆盖固定了每一句 pwsh 提示词与描述。
 - 对齐也反向发生过一次：pwsh 工具的结构化前台中止（`HarnessError('tool call aborted', TOOL_ABORTED)`，name 为 `AbortError`）被回移到 bash 工具，取代其无码的 `Error('command aborted')`——这是模型可见/入日志的变更，由两侧的精确形状测试与 cancel-tool-calls fixture（测试前置数据）钉住。
 - `@deepseek-ai/dsh-shell-env` 成为新的交付包；`dsh-tool-bash` 的 `dshHome` 配置迁往那里，因此挂载 shell 工具的组合也必须挂载 `shell-env`（主干组合包已如此）。
 - Windows 专属语义（CRLF 归一化、强制终止 exit-1/signal-null、仅 POSIX 的自信号）一如既往由测试钉住。
-- pwsh 工具的逐文件覆盖率门禁由可脚本化的 fake 执行器套件（`tests/tools.spec.ts`）承担；真实 pwsh 的集成与 Loader 组合套件在无 `pwsh` 的宿主自跳过，与 bash 套件的分工一致。
+- pwsh 工具的逐文件覆盖率门禁由可脚本化的 fake 执行器套件（`tests/tools.spec.ts`）承担；一个始终可运行的直接 `pwsh-local` 组合把后台启动失败经真实任务运行时与 `job_output` 驱动到底，而成功的真实 pwsh 与 Loader 套件在无 `pwsh` 的宿主自跳过。
 - 路线图提案的 parity 阶段已交付；terminal 卡呈现阶段随 [pwsh UI 呈现与 bash 对齐](2026-08-05-pwsh-ui-bash-parity.zh.md) 决策交付（TUI 本身已移除），剩余阶段是 Windows 默认组合。

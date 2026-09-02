@@ -26,11 +26,13 @@ The first Windows-native foundation shipped `dsh-tool-pwsh` as a deliberately mi
 
 **Extract a fully shared tool implementation base (abstract shell dialect, two thin leaves).** Considered and deferred: the shell-env extraction and the structural mirror (`render.ts`/`background.ts` twins) are the foundation it would rest on; a full base waits until a third dialect or the persistent-PTY twin makes the abstraction's shape observable.
 
+**Redesign background process settlement.** Deferred as a separate lifecycle change: startup failure currently settles as `status: 'killed'` plus `infrastructureFailed` and one synthetic marked diagnostic. Replacing that composite state with a discriminated exited/killed/failed outcome would change the shared Service Definition, both local and sandbox providers, both tools, and recorded output; evidence hardening does not require that blast radius.
+
 ## Consequences
 
 - The bash and pwsh tools are behaviorally interchangeable for foreground, background, and sandboxed shell work (the sandbox surface is owned by the Windows ACL sandbox decision), and renderer coverage pins every pwsh prompt and description sentence.
 - Parity ran BOTH ways once: the pwsh tool's structured foreground abort (`HarnessError('tool call aborted', TOOL_ABORTED)` with name `AbortError`) was backported to the bash tool, replacing its uncoded `Error('command aborted')` — a model-visible/logged change pinned by exact-shape tests on both sides and by the cancel-tool-calls fixture.
 - `@deepseek-ai/dsh-shell-env` is a new shipped package; `dsh-tool-bash`'s `dshHome` config moved there, so compositions mounting the shell tools must also mount `shell-env` (the spine bundles do).
 - Windows-only semantics (CRLF normalization, forced-termination exit-1/signal-null, POSIX-only self-signal) remain pinned by tests as before.
-- The pwsh tool's per-file coverage gate rides on the scriptable fake-executor suite (`tests/tools.spec.ts`); the real-pwsh integration and Loader-composition suites self-skip where `pwsh` is absent, mirroring the bash suites' division of labor.
+- The pwsh tool's per-file coverage gate rides on the scriptable fake-executor suite (`tests/tools.spec.ts`); an always-runnable direct `pwsh-local` composition drives background startup failure through the real job runtime and `job_output`, while successful real-pwsh and Loader suites self-skip where `pwsh` is absent.
 - The roadmap proposal's parity stage is delivered; the terminal-card presentation stage shipped in the [pwsh UI presentation matches bash](2026-08-05-pwsh-ui-bash-parity.md) decision (the TUI itself was removed), leaving the Windows default composition as the remaining stage.
