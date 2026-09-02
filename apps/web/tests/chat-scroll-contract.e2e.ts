@@ -477,6 +477,43 @@ describe('web e2e: long Chat scroll contract', () => {
     await browser?.close()
   })
 
+  it('keeps transcript zoom reversible without moving the visible reader anchor', async () => {
+    await withScrollWorld({
+      failureShot: 'web-e2e-chat-scroll-zoom',
+      seeds: [{ fixture: HISTORY_FIXTURE, id: HISTORY_SESSION_ID }],
+    }, async (world) => {
+      await openSeed(world.page, HISTORY_FIXTURE)
+      await wheelTranscript(world.page, -900)
+      const before = await visibleFlowAnchor(world.page)
+      const transcript = world.page.locator('[data-chat-scroll]')
+      const box = await transcript.boundingBox()
+      if (box === null) throw new Error('chat transcript has no layout box')
+      await transcript.dispatchEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        clientX: box.x + box.width / 2,
+        clientY: box.y + Math.min(160, box.height / 3),
+        ctrlKey: true,
+        deltaY: -40,
+      })
+      await world.page.getByRole('button', { name: 'Reset transcript zoom' }).waitFor()
+      await nextPaint(world.page)
+      expect(Math.abs(await flowTop(world.page, before.key) - before.top))
+        .toBeLessThanOrEqual(GEOMETRY_TOLERANCE)
+
+      await world.page.getByRole('button', { name: 'Reset transcript zoom' }).click()
+      await nextPaint(world.page)
+      expect(await transcript.evaluate(element => element.style.getPropertyValue('--dsh-chat-font-scale'))).toBe('')
+      const resetTop = await flowTop(world.page, before.key)
+      expect(Math.abs(resetTop - before.top), JSON.stringify({
+        before,
+        geometry: await scrollGeometry(world.page),
+        resetTop,
+      })).toBeLessThanOrEqual(GEOMETRY_TOLERANCE)
+      assertClean(world)
+    })
+  })
+
   it.skipIf(MODE === 'record')('preserves the reader anchor when history and streaming arrive concurrently', async () => {
     await withScrollWorld({
       failureShot: 'web-e2e-chat-scroll-history-stream',

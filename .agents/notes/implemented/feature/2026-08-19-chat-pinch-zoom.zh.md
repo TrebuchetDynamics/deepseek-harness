@@ -10,9 +10,9 @@ Status: implemented
 
 ## 决策
 
-聊天视图绑定双指触摸手势与 Ctrl+滚轮缩放，并通过 ChatView 根节点的 CSS `zoom` 属性生效，因此缩放范围保持在记录框内。触摸处理会测量两个触点之间的距离，并且仅在两个触点都留在聊天区域时阻止文档默认行为；单指滚动与聊天区域之外的原生页面缩放仍可使用。桌面触控板与显式 Ctrl+滚轮共用滚轮路径。缩放值读写自 `localStorage` 的 `dsh:chat-font-scale`，钳制在 0.8–1.8，并以 `--dsh-chat-font-scale` 暴露在 ChatView 根节点上，由 CSS 模块映射到 `zoom`；输入框、侧边栏与输入区位于 ChatView 子树之外，因此不会缩放。
+聊天视图绑定双指触摸手势与 Ctrl+滚轮缩放，并通过消息栏的 CSS `zoom` 属性生效，因此 scrollport、恢复控件与周围界面保持原有尺寸。触摸处理会测量两个触点之间的距离，并且仅在两个触点都留在聊天区域时阻止文档默认行为；单指滚动与聊天区域之外的原生页面缩放仍可使用。桌面触控板与显式 Ctrl+滚轮共用滚轮路径。缩放值读写自 `localStorage` 的 `dsh:chat-font-scale`，钳制在 0.8–1.8，并以 `--dsh-chat-font-scale` 暴露在记录 scroller 上，由消息栏继承并映射到 `zoom`。缩放值非默认时会显示本地化百分比控件，用于重置可见记录与持久化值；该控件、输入框、侧边栏与输入区均不会缩放。
 
-全部逻辑位于 `chat-zoom.ts`——纯函数 `clampZoom`/`stepZoom`/`loadChatZoom`/`saveChatZoom` 以及负责监听与 CSS 变量的 `attachChatZoom`——外加 ChatView 中少量接线 effect。`chat-zoom.client.spec.ts` 在 jsdom 中覆盖这些函数以及滚轮与触摸绑定行为。
+全部逻辑位于 `chat-zoom.ts`——纯函数 `clampZoom`/`stepZoom`/`loadChatZoom`/`saveChatZoom` 以及负责监听与 CSS 变量的 `attachChatZoom`——外加 ChatView 中少量接线 effect。`chat-zoom.client.spec.ts` 在 jsdom 中覆盖这些函数、重置操作以及滚轮与触摸绑定行为；ChatView 组件测试覆盖本地化重置路径，浏览器滚动场景则固定缩放与重置时的阅读位置。
 
 ## 备选方案
 
@@ -22,4 +22,4 @@ Status: implemented
 
 ## 影响
 
-移动端读者可双指捏合只放大或缩小聊天记录，缩放值按设备持久化，普通单指滚动不受影响。聊天区域之外仍可使用原生文档缩放。新模块通过 oxlint 与单文件覆盖率门槛。
+移动端读者可双指捏合只放大或缩小聊天记录，缩放值按设备持久化，可见的百分比控件可恢复默认值，普通单指滚动不受影响。聊天区域之外仍可使用原生文档缩放。新模块通过 oxlint 与单文件覆盖率门槛。

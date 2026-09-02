@@ -4,10 +4,6 @@
   flex-direction: column;
   min-height: 0;
   flex: 1 1 auto;
-  /* Pinch/ctrl+wheel sets --dsh-chat-font-scale on this element (ChatView
-     only, so the composer, sidebar, and chrome stay fixed); zoom scales the
-     whole transcript box, not just em/rem text. */
-  zoom: var(--dsh-chat-font-scale);
 }
 
 .scroll {
@@ -45,6 +41,9 @@
   margin: 0 auto;
   display: flex;
   flex-direction: column;
+  /* The scroller carries the gesture-owned variable; scaling the message
+     column leaves transcript controls and surrounding application chrome fixed. */
+  zoom: var(--dsh-chat-font-scale);
 }
 
 /* `hidden="until-found"` retains a zero-height box so browser find can reveal
@@ -170,6 +169,35 @@
 .older button:disabled {
   cursor: default;
   opacity: 0.6;
+}
+
+.zoomResetSlot {
+  position: sticky;
+  top: 12px;
+  z-index: 8;
+  height: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding-right: 12px;
+  pointer-events: none;
+}
+
+.zoomReset {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 100px;
+  corner-shape: round;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-button-floating-fill);
+  box-shadow: var(--dsw-elevation-panel);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.zoomReset:hover {
+  background: var(--dsw-alias-button-floating-hover);
 }
 
 /* Back-to-bottom: zero-height sticky slot so the control does not extend

@@ -62,7 +62,7 @@ describe('attachChatZoom', () => {
   })
 
   it('applies the loaded scale and updates it on ctrl+wheel, persisting', () => {
-    const detach = attachChatZoom(el, {
+    const binding = attachChatZoom(el, {
       load: () => 1.1,
       save: (s) => {
         saved.push(s)
@@ -77,20 +77,20 @@ describe('attachChatZoom', () => {
     expect(scaled).toBeLessThanOrEqual(CHAT_ZOOM_MAX)
     expect(saved).toHaveLength(1)
     expect(saved[0]).toBe(scaled)
-    detach()
+    binding.dispose()
   })
 
   it('ignores plain (non-ctrl) wheel so vertical scroll is untouched', () => {
-    const detach = attachChatZoom(el, { load: () => 1 })
+    const binding = attachChatZoom(el, { load: () => 1 })
     el.dispatchEvent(
       new WheelEvent('wheel', { ctrlKey: false, deltaY: -400, bubbles: true }),
     )
     expect(el.style.getPropertyValue(CHAT_ZOOM_VAR)).toBe('')
-    detach()
+    binding.dispose()
   })
 
   it('scales a two-finger touch gesture without intercepting one-finger touch', () => {
-    const detach = attachChatZoom(el, {
+    const binding = attachChatZoom(el, {
       load: () => 1,
       save: (s) => {
         saved.push(s)
@@ -114,11 +114,11 @@ describe('attachChatZoom', () => {
     const scroll = touchEvent('touchmove', [{ clientX: 0, clientY: 20 }])
     el.dispatchEvent(scroll)
     expect(scroll.defaultPrevented).toBe(false)
-    detach()
+    binding.dispose()
   })
 
   it('prevents default on ctrl+wheel and nowhere else', () => {
-    const detach = attachChatZoom(el)
+    const binding = attachChatZoom(el)
     const ctrl = new WheelEvent('wheel', {
       ctrlKey: true,
       deltaY: -100,
@@ -134,12 +134,73 @@ describe('attachChatZoom', () => {
     })
     el.dispatchEvent(plain)
     expect(plain.defaultPrevented).toBe(false)
-    detach()
+    binding.dispose()
+  })
+
+  it('keeps the first visible row fixed while reader-owned content reflows', () => {
+    const host = document.createElement('div')
+    host.dataset.conversationScroll = ''
+    const row = document.createElement('div')
+    row.dataset.chatAnchorKey = 'row'
+    host.append(el, row)
+    Object.defineProperties(host, {
+      clientHeight: { value: 500 },
+      scrollHeight: { value: 1_000 },
+      scrollTop: { value: 100, writable: true },
+    })
+    host.getBoundingClientRect = () => ({ top: 0, bottom: 500 }) as DOMRect
+    row.getBoundingClientRect = () => {
+      const shifted = el.style.getPropertyValue(CHAT_ZOOM_VAR) === '' ? 0 : 50
+      return { top: 100 + shifted, bottom: 140 + shifted } as DOMRect
+    }
+    const binding = attachChatZoom(el, { load: () => 1, save: () => {} })
+
+    el.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -40 }))
+
+    expect(host.scrollTop).toBe(150)
+    binding.dispose()
+    host.remove()
+  })
+
+  it('keeps a bottom-following transcript at its new floor', () => {
+    const host = document.createElement('div')
+    host.dataset.conversationScroll = ''
+    host.append(el)
+    Object.defineProperties(host, {
+      clientHeight: { value: 500 },
+      scrollHeight: {
+        get: () => el.style.getPropertyValue(CHAT_ZOOM_VAR) === '' ? 1_000 : 1_200,
+      },
+      scrollTop: { value: 500, writable: true },
+    })
+    const binding = attachChatZoom(el, { load: () => 1, save: () => {} })
+
+    el.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -40 }))
+
+    expect(host.scrollTop).toBe(700)
+    binding.dispose()
+    host.remove()
+  })
+
+  it('resets the transcript scale and reports the default', () => {
+    const changed: number[] = []
+    const binding = attachChatZoom(el, {
+      load: () => 1.4,
+      save: (scale) => { saved.push(scale) },
+      onChange: (scale) => { changed.push(scale) },
+    })
+
+    binding.reset()
+
+    expect(el.style.getPropertyValue(CHAT_ZOOM_VAR)).toBe('')
+    expect(saved).toEqual([1])
+    expect(changed).toEqual([1.4, 1])
+    binding.dispose()
   })
 
   it('cleanup removes the listeners and the scale var', () => {
-    const detach = attachChatZoom(el, { load: () => 1.2, save: () => {} })
-    detach()
+    const binding = attachChatZoom(el, { load: () => 1.2, save: () => {} })
+    binding.dispose()
     expect(el.style.getPropertyValue(CHAT_ZOOM_VAR)).toBe('')
     el.dispatchEvent(
       new WheelEvent('wheel', { ctrlKey: true, deltaY: -100, bubbles: true }),

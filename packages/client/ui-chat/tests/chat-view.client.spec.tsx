@@ -26,6 +26,7 @@ import { EMPTY_CONVERSATION_SNAPSHOT } from '@deepseek-ai/dsh-client-ui-conversa
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { createChatStore } from '../src/client/stores.ts'
 import { ChatView } from '../src/client/chat/ChatView.tsx'
+import { CHAT_ZOOM_STORAGE_KEY, CHAT_ZOOM_VAR } from '../src/client/chat/chat-zoom.ts'
 import { ChatNodeSeat } from '../src/client/chat/ChatNodeSeat.tsx'
 import { useTurnDataValue } from '../src/client/chat/use-turn-data.ts'
 import { zh } from '../src/client/locale.ts'
@@ -541,6 +542,20 @@ describe('Chat node rendering', () => {
 })
 
 describe('ChatView', () => {
+  it('shows a localized reset control for a persisted transcript zoom', () => {
+    localStorage.setItem(CHAT_ZOOM_STORAGE_KEY, '1.25')
+    const h = makeHarness()
+    const view = render(<h.ChatView {...h.props} />)
+    const transcript = view.container.querySelector<HTMLElement>('[data-chat-scroll]')!
+    expect(transcript.style.getPropertyValue(CHAT_ZOOM_VAR)).toBe('1.25')
+
+    fireEvent.click(view.getByRole('button', { name: '重置对话缩放' }))
+
+    expect(transcript.style.getPropertyValue(CHAT_ZOOM_VAR)).toBe('')
+    expect(localStorage.getItem(CHAT_ZOOM_STORAGE_KEY)).toBe('1')
+    expect(view.queryByRole('button', { name: '重置对话缩放' })).toBeNull()
+  })
+
   it('leaves the turn rail unrendered when an unrelated Chat update commits', () => {
     const snapshot = chatSnapshotFixture({
       nodes: [

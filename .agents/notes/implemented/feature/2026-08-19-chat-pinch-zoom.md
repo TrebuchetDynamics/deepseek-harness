@@ -10,9 +10,9 @@ On mobile the whole GUI sticks to the platform font size. A reader who wants a b
 
 ## Decision
 
-The chat view binds two-finger touch gestures and ctrl+wheel zoom and applies the scale through the CSS `zoom` property of the ChatView root, so scaling stays inside the transcript box. Touch handling measures the distance between two contacts and prevents the document default only while both contacts remain in the chat; one-finger scrolling and native page zoom elsewhere remain available. Desktop trackpads and explicit ctrl+wheel share the wheel path. The scale is read from and written to `localStorage` under `dsh:chat-font-scale`, clamped to 0.8–1.8, and surfaced as `--dsh-chat-font-scale` on the ChatView root, which the CSS module maps to `zoom`; the composer, sidebar, and input chrome never scale because they live outside the ChatView subtree.
+The chat view binds two-finger touch gestures and ctrl+wheel zoom and applies the scale through the CSS `zoom` property of the message column, so the scrollport, recovery controls, and surrounding chrome keep their size. Touch handling measures the distance between two contacts and prevents the document default only while both contacts remain in the chat; one-finger scrolling and native page zoom elsewhere remain available. Desktop trackpads and explicit ctrl+wheel share the wheel path. The scale is read from and written to `localStorage` under `dsh:chat-font-scale`, clamped to 0.8–1.8, and surfaced as `--dsh-chat-font-scale` on the transcript scroller, which the message column inherits and maps to `zoom`. A localized percentage control appears after a non-default scale and resets both the visible transcript and persisted value; the control, composer, sidebar, and input chrome remain unscaled.
 
-All logic sits in `chat-zoom.ts` — pure `clampZoom`/`stepZoom`/`loadChatZoom`/`saveChatZoom` plus `attachChatZoom`, which owns the listeners and the CSS variable — and a small wiring effect in ChatView. `chat-zoom.client.spec.ts` covers the helpers and both wheel and touch binding behavior in jsdom.
+All logic sits in `chat-zoom.ts` — pure `clampZoom`/`stepZoom`/`loadChatZoom`/`saveChatZoom` plus `attachChatZoom`, which owns the listeners and the CSS variable — and a small wiring effect in ChatView. `chat-zoom.client.spec.ts` covers the helpers, reset operation, and wheel and touch binding behavior in jsdom; the ChatView component test covers the localized reset path, and the browser scroll scenario pins reader position through zoom and reset.
 
 ## Alternatives considered
 
@@ -22,4 +22,4 @@ All logic sits in `chat-zoom.ts` — pure `clampZoom`/`stepZoom`/`loadChatZoom`/
 
 ## Consequences
 
-A mobile reader pinches to grow or shrink only the chat transcript, the scale persists per device, and plain single-finger scrolling is untouched. Native document zoom remains available outside the chat. Oxlint and the per-file coverage gate pass for the new module.
+A mobile reader pinches to grow or shrink only the chat transcript, the scale persists per device, the visible percentage control restores the default, and plain single-finger scrolling is untouched. Native document zoom remains available outside the chat. Oxlint and the per-file coverage gate pass for the new module.

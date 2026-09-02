@@ -15,6 +15,7 @@ import { TurnNavigator } from './TurnNavigator.tsx'
 import { mergeTurnRailItems, type TurnRailItem } from './turn-rail-items.ts'
 import { formatRunDuration } from './message-chrome.ts'
 import { attachChatZoom } from './chat-zoom.ts'
+import type { ChatZoomBinding } from './chat-zoom.ts'
 import css from './ChatView.module.css'
 
 const FOLLOW_THRESHOLD = 24
@@ -305,14 +306,19 @@ export function ChatView({
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const columnRef = useRef<HTMLDivElement | null>(null)
-  const rootRef = useRef<HTMLDivElement | null>(null)
+  const zoomBindingRef = useRef<ChatZoomBinding | null>(null)
+  const [chatZoom, setChatZoom] = useState(1)
 
-  // Pinch and ctrl+wheel scale only this transcript (see chat-zoom.ts); the
-  // effect is inert when the root is not mounted.
+  // Pinch and ctrl+wheel scale only the transcript scroller (see chat-zoom.ts).
   useLayoutEffect(() => {
-    const el = rootRef.current
+    const el = listRef.current
     if (el === null) return
-    return attachChatZoom(el)
+    const binding = attachChatZoom(el, { onChange: setChatZoom })
+    zoomBindingRef.current = binding
+    return () => {
+      zoomBindingRef.current = null
+      binding.dispose()
+    }
   }, [])
   // A saved position starts disarmed; the first layout effect synchronously
   // restores it and normalizes a floor-clamped position back to following.
@@ -761,8 +767,20 @@ export function ChatView({
   }, [loadingOlder, loadThrough])
 
   return (
-    <div ref={rootRef} className={css.root}>
-      <div ref={listRef} className={css.scroll}>
+    <div className={css.root}>
+      {chatZoom !== 1 && (
+        <div className={css.zoomResetSlot}>
+          <button
+            type="button"
+            className={css.zoomReset}
+            aria-label={t('chat.resetZoom')}
+            onClick={() => { zoomBindingRef.current?.reset() }}
+          >
+            {Math.round(chatZoom * 100)}%
+          </button>
+        </div>
+      )}
+      <div ref={listRef} className={css.scroll} data-chat-scroll="">
         <TurnNavigator
           items={railItems}
           activeTurn={activeTurn}
