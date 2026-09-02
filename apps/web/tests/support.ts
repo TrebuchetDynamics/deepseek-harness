@@ -5,6 +5,20 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Locator, Page } from 'playwright'
 
+const buildEnvironmentModulePath = '../../../scripts/client-build-environment.ts'
+const buildEnvironmentModule: unknown = await import(buildEnvironmentModulePath)
+const buildRecordReader: unknown = typeof buildEnvironmentModule === 'object' && buildEnvironmentModule !== null
+  ? Reflect.get(buildEnvironmentModule, 'readClientBuildRecord')
+  : undefined
+if (!isBuildRecordReader(buildRecordReader)) {
+  throw new TypeError('client build environment module must export readClientBuildRecord')
+}
+const readClientBuildRecord = buildRecordReader
+
+function isBuildRecordReader(value: unknown): value is (root: string) => unknown {
+  return typeof value === 'function'
+}
+
 /** The built page under test; `pnpm run test:web` rebuilds it before running. */
 export const DIST_INDEX = fileURLToPath(new URL('../dist/index.html', import.meta.url))
 
@@ -65,11 +79,12 @@ export async function expandOwningTurnProcess(page: Page, target: Locator): Prom
   if (await control.getAttribute('aria-expanded') !== 'true') await control.click()
 }
 
-/** Fail loud on a stale checkout instead of testing yesterday's bundle. */
+/** Fail loud on a partial or stale Client build instead of testing mixed artifacts. */
 export function requireDist(): void {
   if (!existsSync(DIST_INDEX)) {
     throw new Error('web app dist not built — run `pnpm run build` from the repository root (`pnpm run test:web` does this first)')
   }
+  readClientBuildRecord(REPO_ROOT)
 }
 
 /** OS-assigned free port, released before use (the spawned `dsh web` needs a concrete --port). */
