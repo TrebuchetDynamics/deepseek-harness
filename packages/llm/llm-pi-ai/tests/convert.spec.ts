@@ -802,6 +802,29 @@ describe('mapStopReason / mapUsage', () => {
     }))).toMatchObject({ kind: 'error', failure: { code: 'SERVER' } })
   })
 
+  it.each([
+    'HTTP 400: An error occurred while processing your request. You can retry your request.',
+    'HTTP 413: An error occurred while processing your request. You can retry your request.',
+    'An error occurred while processing your request: failed to buffer the request body: length limit exceeded.',
+  ])('prefers explicit invalid-request evidence over generic retry advice in %j', (errorMessage) => {
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage })))
+      .toMatchObject({ kind: 'error', failure: { code: 'INVALID_REQUEST' } })
+  })
+
+  it('does not treat a generic processing-failure lookalike as retryable', () => {
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'An error occurred while processing your requested export.',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'PI_AI_ERROR' } })
+  })
+
+  it('does not mistake a request-id segment for explicit HTTP invalid-request evidence', () => {
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'An error occurred while processing your request. You can retry your request. Request ID abc-400-def.',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'SERVER' } })
+  })
+
   it('maps routable HTTP-ish error messages to stable codes', () => {
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 401: bad key' })))
       .toMatchObject({ kind: 'error', failure: { code: 'AUTH' } })

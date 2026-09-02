@@ -43,13 +43,13 @@ function classifyPiAiError(message: string): string {
   if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
   if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE
   if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
+  // Explicit invalid-request evidence outranks generic prose that recommends
+  // retrying: resending the same rejected request cannot succeed unchanged.
+  if (/^(?:400|413)\b|\bHTTP(?:\s+status)?\s*[=:]?\s*(?:400|413)\b|\b(?:API\s+)?error\s*\((?:400|413)\)|failed to buffer the request body:\s*length limit exceeded|payload too large|request body too large/i.test(message)) return 'INVALID_REQUEST'
+  if (/invalid.?request/i.test(message)) return 'INVALID_REQUEST'
   // OpenAI's generic processing failure tells callers to retry but omits its
   // HTTP status from pi-ai's flattened message.
-  if (/an error occurred while processing your request/i.test(message)) return 'SERVER'
-  // A rejected request body (gateway or provider size cap): resending the
-  // same request cannot succeed, so it is invalid, not transient.
-  if (/\b413\b|failed to buffer the request body:\s*length limit exceeded|payload too large|request body too large/i.test(message)) return 'INVALID_REQUEST'
-  if (/\b400\b|invalid.?request/i.test(message)) return 'INVALID_REQUEST'
+  if (/an error occurred while processing your request\b/i.test(message)) return 'SERVER'
   if (/\b5\d\d\b/.test(message)) return 'SERVER'
   if (/\btime(?:d)?\s*out\b|timeout/i.test(message)) return 'TIMEOUT'
   // A stream truncated before the provider's terminal event: each pi-ai provider

@@ -11,7 +11,7 @@ import type {
 } from '@deepseek-ai/dsh-attachment'
 import LlmRuntime, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, resolveImageAttachmentAccess, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
-import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import { PiAiAdapter, resolvePiAiProviderProfiles } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { DEFAULT_MAX_REQUEST_IMAGE_BYTES, resolveProfiles } from '../src/config.ts'
@@ -60,7 +60,7 @@ function adapterOf(
   apiKey: string | undefined = 'test-key',
 ): PiAiAdapter {
   return new PiAiAdapter({
-    profiles: () => resolveProfiles(providers),
+    profiles: () => resolvePiAiProviderProfiles(providers),
     resolveApiKey: () => Promise.resolve(apiKey),
     auth: memoryAuth(),
   })
@@ -98,7 +98,7 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     ctx.llm.registerAdapter(['deepseek'], new PiAiAdapter({
-      profiles: () => resolveProfiles(providers),
+      profiles: () => resolvePiAiProviderProfiles(providers),
       resolveApiKey: () => Promise.resolve('test-key'),
       auth: memoryAuth(),
     }))
@@ -311,7 +311,7 @@ describe('PiAiAdapter provider routing', () => {
       }
     }
 
-    const resolved = resolveProfiles({
+    const resolved = resolvePiAiProviderProfiles({
       openai: { apiKeyEnv: 'PI_TEST_KEY', baseURL: `${server.url}/v1` },
     }).get('openai')!
     const {
@@ -454,7 +454,8 @@ describe('PiAiAdapter provider routing', () => {
 })
 
 describe('provider profile lifecycle', () => {
-  it('keeps adapter helpers off the package root', () => {
+  it('keeps internal adapter helpers off the package root', () => {
+    expect(LlmPiAi.resolvePiAiProviderProfiles).toBe(resolvePiAiProviderProfiles)
     for (const helper of [
       'resolveProfiles',
       'toPiContext',
