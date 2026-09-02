@@ -67,13 +67,13 @@ Installation creates `/etc/deepseek-harness.env` once and preserves it across up
 | ------------------------- | -------------------------------- | ------------------------------------------------ |
 | `DSH_VPN_PROVIDER`        | `tailscale`                      | VPN transport: `tailscale` or `netbird`          |
 | `DSH_BACKEND_PORT`        | `4081`                           | Loopback port for `dsh web`                      |
-| `DSH_PUBLIC_PORT`         | `4080`                           | Loopback port for Caddy and the Serve target     |
+| `DSH_PUBLIC_PORT`         | `4080`                           | Caddy port; loopback Serve target in Tailscale mode |
 | `DSH_HTTPS_PORT`          | `443`                            | Host Tailscale Serve HTTPS port                  |
 | `DSH_STARTUP_TIMEOUT`     | `90`                             | Readiness timeout in seconds                     |
 | `TAILSCALE_OWNER`         | connected login at first install | Login allowed to use owner-only proxy routes     |
 | `DSH_EXTRA_TRUSTED_HOSTS` | empty                            | Comma-separated additional Harness trusted hosts |
 
-Edit the file with root privileges and keep every required key exactly once. `TAILSCALE_OWNER` is required only for Tailscale mode. Apply port changes with `./start.sh` so deployment state and Serve ownership advance together; apply other changes with `./start.sh restart`. Ports must be distinct where required and lie between 1 and 65535; the startup timeout must be between 1 and 3600 seconds. The configured owner must match the connected host-node login.
+Edit the file with root privileges and keep every required key exactly once. `TAILSCALE_OWNER` is required only for Tailscale mode. Apply VPN provider or port changes with `./start.sh install` so deployment state, service dependencies, and Serve ownership advance together; apply other changes with `./start.sh restart`. Ports must be distinct where required and lie between 1 and 65535; the startup timeout must be between 1 and 3600 seconds. The configured owner must match the connected host-node login.
 
 ## NetBird access
 

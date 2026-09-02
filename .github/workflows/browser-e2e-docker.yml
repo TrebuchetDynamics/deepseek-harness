@@ -47,6 +47,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
       # Build the toolchain image and persist its pnpm/Chromium provisioning
       # layer across runs with the GitHub-hosted layer cache; `load` keeps the
       # image in the local daemon for the `docker run` step below. The rebuild

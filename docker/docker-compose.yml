@@ -97,6 +97,8 @@ services:
     environment:
       - DSH_PUBLIC_PORT=${DSH_PUBLIC_PORT:-4080}
       - DSH_BACKEND_PORT=${DSH_BACKEND_PORT:-4081}
+      - DSH_BIND_ADDRESS=127.0.0.1
+      - DSH_VPN_PROVIDER=tailscale
       - TAILSCALE_OWNER=${TAILSCALE_OWNER:-__remote_settings_disabled__}
       - DSH_TASK_BOARD_PROXY_TOKEN=${DSH_TASK_BOARD_PROXY_TOKEN:-}
     volumes:

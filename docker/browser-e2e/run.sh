@@ -51,8 +51,11 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 IMAGE="dsh-browser-e2e:local"
-PNPM_VERSION="$(node -p \
-  "require('${ROOT}/package.json').packageManager.split('@')[1]" 2>/dev/null || echo 11.7.0)"
+PNPM_VERSION="$(sed -n 's/.*"packageManager": "pnpm@\([^"]*\)".*/\1/p' "$ROOT/package.json")"
+[ -n "$PNPM_VERSION" ] || {
+  echo "error: package.json must declare packageManager as pnpm@<version>" >&2
+  exit 1
+}
 
 # Rebuild only when inputs change; layer caching keeps the pnpm/Chromium
 # provisioning layer cheap after the first build.
@@ -62,20 +65,20 @@ docker build \
   -t "$IMAGE" \
   "$ROOT"
 
-# Use the caller's pnpm store at the same absolute path so the bind-mounted
-# checkout remains usable by host pnpm after the container exits.
-STORE_DIR="$(pnpm store path --silent)"
+# Keep container downloads in a caller-owned cache without requiring host pnpm.
+STORE_DIR="${XDG_CACHE_HOME:-${HOME:?HOME must be set}/.cache}/deepseek-harness/browser-e2e-pnpm-store"
+mkdir -p "$STORE_DIR"
 
 RUN_FLAGS+=(--rm --user "$(id -u):$(id -g)")
 RUN_FLAGS+=(--volume "$ROOT:/workspace" --workdir /workspace)
-RUN_FLAGS+=(--volume "$STORE_DIR:$STORE_DIR")
+RUN_FLAGS+=(--volume "$STORE_DIR:/tmp/pnpm-store")
 RUN_FLAGS+=(--env CI=true)
 RUN_FLAGS+=(--env "DSH_SNAPSHOT=${DSH_SNAPSHOT:-replay}")
 RUN_FLAGS+=(--env "DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}")
 RUN_FLAGS+=(--env "DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-}")
 RUN_FLAGS+=(--env HOME=/tmp)
 RUN_FLAGS+=(--env PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright)
-RUN_FLAGS+=(--env "PNPM_CONFIG_STORE_DIR=$STORE_DIR")
+RUN_FLAGS+=(--env PNPM_CONFIG_STORE_DIR=/tmp/pnpm-store)
 
 [ "$HOST_NETWORK" -eq 1 ] && RUN_FLAGS+=(--network host)
 [ "$PRIVILEGED" -eq 1 ] && RUN_FLAGS+=(--privileged)

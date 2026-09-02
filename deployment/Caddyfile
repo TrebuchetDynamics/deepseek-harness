@@ -32,7 +32,7 @@
 	}
 
 	@owner_index_without_cookie {
-		expression `{env.DSH_BROWSER_LAUNCH_TOKEN} != ""`
+		expression `{env.DSH_VPN_PROVIDER} == "tailscale" && {env.DSH_BROWSER_LAUNCH_TOKEN} != ""`
 		header Tailscale-User-Login {$TAILSCALE_OWNER}
 		path /
 		not header_regexp Cookie dsh-auth-
@@ -46,6 +46,7 @@
 	}
 
 	@owner_task_board {
+		expression `{env.DSH_VPN_PROVIDER} == "tailscale"`
 		header Tailscale-User-Login {$TAILSCALE_OWNER}
 		path /api/task-board/*
 	}
@@ -60,6 +61,7 @@
 	# The complete Host API is owner-only. Matching the namespace instead of an
 	# endpoint allowlist keeps newly installed tools and plugin routes reachable.
 	@owner_api {
+		expression `{env.DSH_VPN_PROVIDER} == "tailscale"`
 		header Tailscale-User-Login {$TAILSCALE_OWNER}
 		path /api /api/*
 	}

@@ -33,7 +33,7 @@ Harness 的 `--trusted-host` 选项是 DNS rebinding 与跨站栅栏，而不是
 docker build -t dsh-tailscale:local -f Dockerfile .
 ```
 
-镜像从 npm 安装已发布的 `@deepseek-ai/dsh` 包、其运行时对等包、用于 profile 插件管理的 pnpm、Docker 28 客户端及其维护中的 CLI 插件、带 pip、venv 支持、头文件及两个命令名的 Python 3，以及供原生构建使用的 GCC、G++、make 与 pkg-config。镜像不会运行 Docker daemon。`DSH_VERSION` 默认为 `0.1.1-rc.2`，`PNPM_VERSION` 则与仓库的 `packageManager` 一致；固定版本变化时更新对应构建参数。`run-docker.sh` 默认使用 Compose 层缓存，未变化的重启会跳过包安装层；只有明确需要干净重建时才设置 `DSH_BUILD_NO_CACHE=1`。
+镜像从 npm 安装已发布的 `@deepseek-ai/dsh` 包、其运行时对等包、用于 profile 插件管理的 pnpm、Docker 28 客户端及其维护中的 CLI 插件、带 pip、venv 支持、头文件及两个命令名的 Python 3，以及供原生构建使用的 GCC、G++、make 与 pkg-config。镜像不会运行 Docker daemon。`DSH_VERSION` 默认为 `0.1.2-alpha.4`，`PNPM_VERSION` 则与仓库的 `packageManager` 一致；固定版本变化时更新对应构建参数。`run-docker.sh` 默认使用 Compose 层缓存，未变化的重启会跳过包安装层；只有明确需要干净重建时才设置 `DSH_BUILD_NO_CACHE=1`。
 
 ## 宿主要求
 

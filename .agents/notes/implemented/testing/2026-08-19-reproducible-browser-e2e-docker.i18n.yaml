@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/testing/2026-08-19-reproducible-browser-e2e-docker.md
-2026-08-19-reproducible-browser-e2e-docker.md: 49207a7d7ac97450e932aca08eba3b3d2ceedc01
-2026-08-19-reproducible-browser-e2e-docker.zh.md: 2a034f81ecf79500fecd50803537d366daa31d0b
+2026-08-19-reproducible-browser-e2e-docker.md: 10603325e850e424a8875b8602d4bbcbfddae243
+2026-08-19-reproducible-browser-e2e-docker.zh.md: 8fda05184ec9a2e63b9a28b1c9e149d7ec05fec3

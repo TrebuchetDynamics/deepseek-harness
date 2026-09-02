@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -34,10 +35,23 @@ describe('Docker Tailscale proxy', () => {
       config.indexOf('handle @owner_api'),
       config.indexOf('@api'),
     )
+    const ownerIndexMatcher = config.slice(
+      config.indexOf('@owner_index_without_cookie'),
+      config.indexOf('handle @owner_index_without_cookie'),
+    )
+    const ownerTaskBoardMatcher = config.slice(
+      config.indexOf('@owner_task_board'),
+      config.indexOf('handle @owner_task_board'),
+    )
     expect(config).toContain('@owner_index_without_cookie')
+    expect(ownerIndexMatcher).toContain('{env.DSH_VPN_PROVIDER} == "tailscale"')
+    expect(ownerTaskBoardMatcher).toContain(
+      'expression `{env.DSH_VPN_PROVIDER} == "tailscale"`',
+    )
     expect(config).toContain(
       'rewrite * /?token={$DSH_BROWSER_LAUNCH_TOKEN}',
     )
+    expect(ownerMatcher).toContain('expression `{env.DSH_VPN_PROVIDER} == "tailscale"`')
     expect(ownerMatcher).toContain('path /api /api/*')
     expect(ownerMatcher).not.toContain('/api/settings/*')
     expect(ownerProxy).not.toContain('header_up Host 127.0.0.1')
@@ -78,6 +92,41 @@ describe('Docker Tailscale proxy', () => {
     expect(composeSource).toContain(
       '../deployment/Caddyfile:/etc/caddy/Caddyfile:ro',
     )
+    expect(composeSource).toContain('DSH_BIND_ADDRESS=127.0.0.1')
+    expect(composeSource).toContain('DSH_VPN_PROVIDER=tailscale')
+  })
+})
+
+describe('browser e2e Docker wrapper', () => {
+  it.runIf(process.platform !== 'win32')('requires Docker but not host Node or pnpm', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-browser-e2e-wrapper-'))
+    try {
+      const bin = join(root, 'bin')
+      const calls = join(root, 'docker.log')
+      mkdirSync(bin)
+      executable(join(bin, 'node'), 'exit 99')
+      executable(join(bin, 'pnpm'), 'exit 99')
+      executable(join(bin, 'docker'), 'printf "%s\\n" "$*" >> "$CALLS"')
+
+      const result = spawnSync('bash', [join(repository, 'docker/browser-e2e/run.sh'), '--', 'true'], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CALLS: calls,
+          HOME: root,
+          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          XDG_CACHE_HOME: join(root, 'cache'),
+        },
+      })
+
+      expect(result.status, result.stderr).toBe(0)
+      const dockerCalls = readFileSync(calls, 'utf8')
+      expect(dockerCalls).toContain('build --build-arg PNPM_VERSION=')
+      expect(dockerCalls).toContain('run --rm')
+      expect(dockerCalls).toContain('PNPM_CONFIG_STORE_DIR=/tmp/pnpm-store')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

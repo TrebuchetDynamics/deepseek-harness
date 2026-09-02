@@ -480,12 +480,14 @@ native_load_owned_state() {
 const fs = require("node:fs")
 const state = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
 const keys = Object.keys(state).sort().join(",")
-if (keys !== "checkout,httpsPort,publicTarget,serviceUser") process.exit(2)
+if (keys !== "checkout,httpsPort,provider,publicTarget,serviceUser") process.exit(2)
 if (typeof state.checkout !== "string" || typeof state.serviceUser !== "string") process.exit(2)
 if (!Number.isInteger(state.httpsPort) || state.httpsPort < 1 || state.httpsPort > 65535) process.exit(2)
+const provider = state.provider
+if (provider !== "tailscale" && provider !== "netbird") process.exit(2)
 const target = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/.exec(state.publicTarget)
 if (!target || Number(target[1]) > 65535) process.exit(2)
-for (const value of [state.checkout, state.serviceUser, String(state.httpsPort), state.publicTarget]) {
+for (const value of [state.checkout, state.serviceUser, String(state.httpsPort), state.publicTarget, provider]) {
   if (/[\r\n]/.test(value)) process.exit(2)
   console.log(value)
 }
@@ -494,7 +496,7 @@ for (const value of [state.checkout, state.serviceUser, String(state.httpsPort),
     return 1
   }
   mapfile -t state <<<"$state_output"
-  [ "${#state[@]}" -eq 4 ] || { dsh_die "deployment state is incomplete: $DSH_STATE_FILE"; return 1; }
+  [ "${#state[@]}" -eq 5 ] || { dsh_die "deployment state is incomplete: $DSH_STATE_FILE"; return 1; }
   recorded_checkout="${state[0]}"
   DSH_STATE_CHECKOUT_MISSING=0
   if [ ! -e "$recorded_checkout" ]; then
@@ -512,6 +514,7 @@ for (const value of [state.checkout, state.serviceUser, String(state.httpsPort),
   DSH_STATE_USER="${state[1]}"
   DSH_STATE_HTTPS_PORT="${state[2]}"
   DSH_STATE_TARGET="${state[3]}"
+  DSH_STATE_PROVIDER="${state[4]}"
   [ "$DSH_STATE_CHECKOUT_MISSING" = 1 ] || [ "$DSH_STATE_CHECKOUT" = "$(readlink -f "$expected_repo")" ] || {
     dsh_die "installed service belongs to $DSH_STATE_CHECKOUT, not $expected_repo"
     return 1
@@ -522,22 +525,22 @@ for (const value of [state.checkout, state.serviceUser, String(state.httpsPort),
       dsh_die "$DSH_UNIT_FILE does not match the recorded native installation"
       return 1
     }
-  export DSH_STATE_CHECKOUT DSH_STATE_CHECKOUT_MISSING DSH_STATE_USER DSH_STATE_HTTPS_PORT DSH_STATE_TARGET
+  if [ "$DSH_STATE_PROVIDER" = tailscale ]; then
+    grep -Fq 'Requires=tailscaled.service' "$DSH_UNIT_FILE" || {
+      dsh_die "$DSH_UNIT_FILE does not match the recorded Tailscale provider"
+      return 1
+    }
+  elif grep -Fq 'tailscaled.service' "$DSH_UNIT_FILE"; then
+    dsh_die "$DSH_UNIT_FILE does not match the recorded NetBird provider"
+    return 1
+  fi
+  export DSH_STATE_CHECKOUT DSH_STATE_CHECKOUT_MISSING DSH_STATE_USER DSH_STATE_HTTPS_PORT DSH_STATE_TARGET DSH_STATE_PROVIDER
 }
 
 native_validate_owned_route() {
-  local actual provider="${DSH_VPN_PROVIDER:-tailscale}"
-  if [ -f "$DSH_CONFIG_FILE" ]; then
-    native_validate_config "$DSH_CONFIG_FILE" || return 1
-    # shellcheck disable=SC1090 -- native_validate_config accepts only fixed keys.
-    source "$DSH_CONFIG_FILE"
-    provider="${DSH_VPN_PROVIDER:-tailscale}"
-  fi
+  local actual
   DSH_HTTPS_PORT="$DSH_STATE_HTTPS_PORT"
-  if [ "$provider" = netbird ]; then
-    dsh_load_netbird_identity
-    return
-  fi
+  [ "$DSH_STATE_PROVIDER" = tailscale ] || return 0
   actual="$(native_current_serve_target)" || {
     dsh_die "cannot prove a single active Tailscale Serve target on HTTPS port $DSH_STATE_HTTPS_PORT"
     return 1
@@ -546,6 +549,21 @@ native_validate_owned_route() {
     dsh_die "Tailscale Serve HTTPS port $DSH_STATE_HTTPS_PORT is owned by $actual, not this installation"
     return 1
   }
+}
+
+native_remove_owned_tailscale_route() {
+  local actual
+  [ "$DSH_STATE_PROVIDER" = tailscale ] || return 0
+  DSH_HTTPS_PORT="$DSH_STATE_HTTPS_PORT"
+  actual="$(native_current_serve_target)" || {
+    dsh_die "cannot verify Tailscale Serve cleanup on HTTPS port $DSH_STATE_HTTPS_PORT"
+    return 1
+  }
+  [ -z "$actual" ] || [ "$actual" = "$DSH_STATE_TARGET" ] || {
+    dsh_die "Tailscale Serve HTTPS port $DSH_STATE_HTTPS_PORT changed ownership; preserving $actual"
+    return 1
+  }
+  [ -z "$actual" ] || tailscale serve --https="$DSH_STATE_HTTPS_PORT" off
 }
 
 native_remove_owned_docker() {
@@ -592,6 +610,76 @@ native_remove_owned_docker() {
   DSH_DOCKER_REMOVED=1
 }
 
+native_is_dsh_web_command() {
+  local -n command_argv="$1"
+  local index
+  for ((index = 0; index < ${#command_argv[@]}; index++)); do
+    case "${command_argv[index]}" in
+      dsh | */dsh | */apps/cli/src/bin.ts | */apps/cli/lib/bin.js)
+        case "${command_argv[index + 1]:-}" in
+          web | --profile=web) return 0 ;;
+          --profile) [ "${command_argv[index + 2]:-}" != web ] || return 0 ;;
+        esac
+        ;;
+    esac
+  done
+  return 1
+}
+
+# Refuse an unmanaged Web process that can write the service's session store.
+native_assert_no_dsh_web_for_home() {
+  local user="$1" home="$2" target_uid target_home process pid process_uid name real_uid effective_uid
+  local entry process_home process_dsh_home candidate cwd
+  local -a argv=() environment=()
+  target_uid="$(id -u "$user")" || return 1
+  target_home="$(readlink -m -- "$home/.dsh")" || return 1
+
+  for process in /proc/[0-9]*; do
+    pid="${process##*/}"
+    process_uid=""
+    while read -r name real_uid effective_uid _; do
+      if [ "$name" = Uid: ]; then
+        process_uid="$effective_uid"
+        break
+      fi
+    done 2>/dev/null <"$process/status" || continue
+    [ "$process_uid" = "$target_uid" ] || continue
+
+    argv=()
+    mapfile -d '' -t argv 2>/dev/null <"$process/cmdline" || continue
+    native_is_dsh_web_command argv || continue
+
+    environment=()
+    mapfile -d '' -t environment 2>/dev/null <"$process/environ" || continue
+    process_home=""
+    process_dsh_home=""
+    for entry in "${environment[@]}"; do
+      case "$entry" in
+        DSH_HOME=*) process_dsh_home="${entry#DSH_HOME=}" ;;
+        HOME=*) process_home="${entry#HOME=}" ;;
+      esac
+    done
+    if [[ "$process_dsh_home" =~ [^[:space:]] ]]; then
+      candidate="$process_dsh_home"
+    else
+      candidate="${process_home:-$home}/.dsh"
+    fi
+    case "$candidate" in
+      '~') candidate="${process_home:-$home}" ;;
+      '~/'* | '~\'*) candidate="${process_home:-$home}/${candidate:2}" ;;
+    esac
+    if [[ "$candidate" != /* ]]; then
+      cwd="$(readlink -f -- "$process/cwd" 2>/dev/null)" || continue
+      candidate="$cwd/$candidate"
+    fi
+    candidate="$(readlink -m -- "$candidate")" || continue
+    [ "$candidate" != "$target_home" ] || {
+      dsh_die "another dsh web process already uses $target_home (PID $pid); stop it before starting $DSH_SERVICE_NAME"
+      return 1
+    }
+  done
+}
+
 native_assert_ports_available() {
   local listeners port
   listeners="$(ss -H -ltn)" || {
@@ -607,7 +695,9 @@ native_assert_ports_available() {
 }
 
 native_start_service() {
-  local repo="$1"
+  local repo="$1" user="$2" home="$3"
+  dsh_info "Checking for another Harness Web process"
+  native_assert_no_dsh_web_for_home "$user" "$home" || return 1
   native_remove_owned_docker "$repo" || return 1
   dsh_info "Checking native service ports"
   native_assert_ports_available || return 1
@@ -615,12 +705,12 @@ native_start_service() {
 }
 
 native_write_state() {
-  local repo="$1" user="$2" tmp
+  local repo="$1" user="$2" provider="$3" tmp
   tmp="$(mktemp)"
   dsh_node -e '
-const [checkout, serviceUser, httpsPort, publicTarget] = process.argv.slice(1)
-process.stdout.write(`${JSON.stringify({ checkout, httpsPort: Number(httpsPort), publicTarget, serviceUser }, null, 2)}\n`)
-' "$repo" "$user" "$DSH_HTTPS_PORT" "http://127.0.0.1:$DSH_PUBLIC_PORT" >"$tmp"
+const [checkout, serviceUser, httpsPort, publicTarget, provider] = process.argv.slice(1)
+process.stdout.write(`${JSON.stringify({ checkout, httpsPort: Number(httpsPort), provider, publicTarget, serviceUser }, null, 2)}\n`)
+' "$repo" "$user" "$DSH_HTTPS_PORT" "http://127.0.0.1:$DSH_PUBLIC_PORT" "$provider" >"$tmp"
   if ! native_install_file_atomically "$tmp" "$DSH_STATE_FILE" 0644; then
     rm -f "$tmp"
     return 1
@@ -629,7 +719,7 @@ process.stdout.write(`${JSON.stringify({ checkout, httpsPort: Number(httpsPort),
 }
 
 native_install() {
-  local repo="$1" user passwd group home login_shell unit_tmp updating=0 update_needs_restart=0
+  local repo="$1" user passwd group home login_shell unit_tmp updating=0 update_needs_restart=0 provider_transition=0
   local provider="${DSH_VPN_PROVIDER:-}"
   if [ -z "$provider" ] && [ -f "$DSH_CONFIG_FILE" ]; then
     provider="$(sed -n 's/^DSH_VPN_PROVIDER=//p' "$DSH_CONFIG_FILE")"
@@ -684,6 +774,7 @@ native_install() {
   if [ -e "$DSH_UNIT_FILE" ]; then
     native_load_owned_state "$repo" 1
     native_validate_owned_route
+    [ "$DSH_STATE_PROVIDER" = "$provider" ] || provider_transition=1
     updating=1
   fi
   dsh_reject_duplicate_sidebar "$home"
@@ -697,6 +788,9 @@ native_install() {
   fi
   if [ "$updating" = 1 ] && [ "$DSH_STATE_CHECKOUT_MISSING" = 1 ]; then
     native_stop_for_update || return 1
+  fi
+  if [ "$provider_transition" = 1 ]; then
+    native_remove_owned_tailscale_route || return 1
   fi
 
   if [ "$provider" = tailscale ]; then
@@ -747,7 +841,7 @@ native_install() {
   # State precedes startup so every installed unit remains recoverable after a
   # failed readiness check. A fresh failure removes both artifacts; updates
   # retain their pre-existing ownership record for retry or uninstall.
-  if ! native_write_state "$repo" "$user"; then
+  if ! native_write_state "$repo" "$user" "$provider"; then
     if [ "$updating" = 0 ]; then
       rm -f "$DSH_UNIT_FILE" "$DSH_STATE_FILE"
       rm -rf "$DSH_LIBEXEC_DIR"
@@ -755,7 +849,7 @@ native_install() {
     fi
     return 1
   fi
-  if ! native_start_service "$repo"; then
+  if ! native_start_service "$repo" "$user" "$home"; then
     if [ "$updating" = 0 ]; then
       systemctl disable --now "$DSH_SERVICE_NAME" >/dev/null 2>&1 || true
       rm -f "$DSH_UNIT_FILE" "$DSH_STATE_FILE"
@@ -775,7 +869,7 @@ native_install() {
 }
 
 native_uninstall() {
-  local repo="$1" actual
+  local repo="$1"
   if [ ! -e "$DSH_UNIT_FILE" ]; then
     echo "$DSH_SERVICE_NAME is not installed. Configuration remains at $DSH_CONFIG_FILE."
     return 0
@@ -783,18 +877,7 @@ native_uninstall() {
   native_load_owned_state "$repo"
   native_validate_owned_route
   systemctl disable --now "$DSH_SERVICE_NAME"
-  local provider="${DSH_VPN_PROVIDER:-tailscale}"
-  if [ "$provider" = tailscale ]; then
-    actual="$(native_current_serve_target)" || {
-      dsh_die "cannot verify Tailscale Serve cleanup after stopping $DSH_SERVICE_NAME"
-      return 1
-    }
-    [ -z "$actual" ] || [ "$actual" = "$DSH_STATE_TARGET" ] || {
-      dsh_die "Tailscale Serve HTTPS port $DSH_STATE_HTTPS_PORT changed ownership while stopping; preserving the unit"
-      return 1
-    }
-    [ -z "$actual" ] || tailscale serve --https="$DSH_STATE_HTTPS_PORT" off
-  fi
+  native_remove_owned_tailscale_route || return 1
   rm -f "$DSH_UNIT_FILE"
   rm -rf "$DSH_LIBEXEC_DIR"
   systemctl daemon-reload
@@ -842,12 +925,13 @@ native_as_root() {
 }
 
 native_show_urls() {
+  local state_provider="${1:-}"
   if [ -f "$DSH_CONFIG_FILE" ]; then
     native_validate_config "$DSH_CONFIG_FILE" || return 1
     # shellcheck disable=SC1090 -- native_validate_config accepts only fixed keys.
     source "$DSH_CONFIG_FILE"
   fi
-  local provider="${DSH_VPN_PROVIDER:-tailscale}" public_url
+  local provider="${state_provider:-${DSH_VPN_PROVIDER:-tailscale}}" public_url
   if [ "$provider" = tailscale ]; then
     dsh_load_tailscale_identity
     public_url="https://$DSH_MAGICDNS/"
@@ -865,9 +949,10 @@ native_validate_lifecycle_config() {
   native_validate_config "$DSH_CONFIG_FILE"
   # shellcheck disable=SC1090 -- native_validate_config accepts only fixed keys.
   source "$DSH_CONFIG_FILE"
-  [ "$DSH_HTTPS_PORT" = "$DSH_STATE_HTTPS_PORT" ] &&
+  [ "${DSH_VPN_PROVIDER:-tailscale}" = "$DSH_STATE_PROVIDER" ] &&
+    [ "$DSH_HTTPS_PORT" = "$DSH_STATE_HTTPS_PORT" ] &&
     [ "http://127.0.0.1:$DSH_PUBLIC_PORT" = "$DSH_STATE_TARGET" ] || {
-      dsh_die "service ports changed since installation; run './start.sh install' to apply them safely"
+      dsh_die "service VPN provider or ports changed since installation; run './start.sh install' to apply them safely"
       return 1
     }
 }
@@ -901,7 +986,7 @@ native_command() {
       DSH_HTTPS_PORT="$DSH_STATE_HTTPS_PORT"
       DSH_PUBLIC_PORT="${DSH_STATE_TARGET##*:}"
       systemctl status --no-pager --full "$DSH_SERVICE_NAME" || status=$?
-      native_show_urls
+      native_show_urls "$DSH_STATE_PROVIDER"
       return "$status"
       ;;
     logs) exec journalctl -u "$DSH_SERVICE_NAME" -f -n 100 ;;
@@ -1013,6 +1098,7 @@ native_service_run() {
   native_validate_config "$config_file"
   # shellcheck disable=SC1090 -- native_validate_config accepts only fixed keys.
   source "$config_file"
+  native_assert_no_dsh_web_for_home "$service_user" "$service_home" || return 1
   local provider="${DSH_VPN_PROVIDER:-tailscale}" configured_owner="${TAILSCALE_OWNER:-}"
   [ "$provider" = tailscale ] || [ "$provider" = netbird ] || {
     dsh_die "unsupported VPN provider: $provider"
@@ -1054,7 +1140,8 @@ native_service_run() {
   local backend_launcher="$runtime_directory/launch-backend"
   local backend_url_file="$runtime_directory/backend-url"
   local token backend_pid="" caddy_pid="" serve_published=0 child_status=0
-  local proxy_bind_address="${DSH_TAILSCALE_IP:-${DSH_NETBIRD_IP:-127.0.0.1}}"
+  local proxy_bind_address=127.0.0.1
+  [ "$provider" != netbird ] || proxy_bind_address="$DSH_NETBIRD_IP"
   mkdir -p "$runtime_directory"
   [ -x "${DSH_NODE_BIN:-}" ] || DSH_NODE_BIN="$("$login_shell" -lc 'command -v node')"
   [ -x "$DSH_NODE_BIN" ] || {

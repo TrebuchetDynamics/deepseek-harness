@@ -11,7 +11,7 @@ tests fine.
 
 `docker/browser-e2e` is the Phase 1 answer: a reproducible container image that
 ships the exact Chromium build the repository's lockfile resolves plus its
-system libraries, so the lane runs anywhere Docker exists. It mirrors the
+system libraries, so the lane requires only Docker and standard POSIX shell utilities on the host; host Node and pnpm are not required. It mirrors the
 approach the hosted CI consumer job already uses (`.github/workflows/ci.yml`,
 "Install Playwright Chromium and hosted dependencies") and is itself exercised
 by a dedicated CI job (`.github/workflows/browser-e2e-docker.yml`).
@@ -36,7 +36,7 @@ by a dedicated CI job (`.github/workflows/browser-e2e-docker.yml`).
 - The image installs setuid Chromium and Bubblewrap helpers. The container runs
   as the caller uid; the full lane requires `--privileged` because its product
   tests create nested filesystem sandboxes.
-- The wrapper mounts the caller's pnpm store at the same absolute path so repeated runs reuse downloads without making host `node_modules` point at a container-only store.
+- The wrapper persists container downloads under the caller-owned `${XDG_CACHE_HOME:-$HOME/.cache}/deepseek-harness/browser-e2e-pnpm-store` directory. The mounted checkout remains usable on the host, and the wrapper does not invoke host Node or pnpm.
 
 ## Run
 

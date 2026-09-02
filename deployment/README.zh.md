@@ -67,13 +67,13 @@ DSH_VPN_PROVIDER=netbird ./start.sh
 | ------------------------- | ---------------------- | ------------------------------- |
 | `DSH_VPN_PROVIDER`        | `tailscale`            | VPN 传输：`tailscale` 或 `netbird` |
 | `DSH_BACKEND_PORT`        | `4081`                 | `dsh web` 的回环端口            |
-| `DSH_PUBLIC_PORT`         | `4080`                 | Caddy 与 Serve 目标的回环端口   |
+| `DSH_PUBLIC_PORT`         | `4080`                 | Caddy 端口；Tailscale 模式下的 Serve 回环目标 |
 | `DSH_HTTPS_PORT`          | `443`                  | 宿主 Tailscale Serve HTTPS 端口 |
 | `DSH_STARTUP_TIMEOUT`     | `90`                   | 就绪超时秒数                    |
 | `TAILSCALE_OWNER`         | 首次安装时的已连接登录 | 可使用仅限属主代理路由的登录    |
 | `DSH_EXTRA_TRUSTED_HOSTS` | 空                     | 逗号分隔的其他 Harness 受信宿主 |
 
-使用 root 权限编辑文件，并保证每个必需键恰好出现一次。Tailscale 模式才要求 `TAILSCALE_OWNER`。端口变更应运行 `./start.sh`，使部署状态与 Serve 所有权一同推进；其他变更运行 `./start.sh restart`。需要不同的端口必须互不相同，且端口取值为 1 至 65535；启动超时必须为 1 至 3600 秒。配置的属主必须匹配已连接的宿主节点登录。
+使用 root 权限编辑文件，并保证每个必需键恰好出现一次。Tailscale 模式才要求 `TAILSCALE_OWNER`。VPN provider 或端口变更应运行 `./start.sh install`，使部署状态、服务依赖与 Serve 所有权一同推进；其他变更运行 `./start.sh restart`。需要不同的端口必须互不相同，且端口取值为 1 至 65535；启动超时必须为 1 至 3600 秒。配置的属主必须匹配已连接的宿主节点登录。
 
 ## NetBird 访问
 

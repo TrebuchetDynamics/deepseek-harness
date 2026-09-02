@@ -1,4 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { once } from 'node:events'
 import {
   chmodSync,
   mkdirSync,
@@ -110,7 +111,7 @@ function spawnRuntime(
       fixture.config,
       repository,
       process.env.USER ?? 'node',
-      process.env.HOME ?? fixture.root,
+      fixture.root,
       fixture.loginShell,
     ],
     {
@@ -181,6 +182,7 @@ function createInstallFixture(): InstallFixture {
   executable(
     join(bin, 'id'),
     `case "$*" in
+  "-u node") echo ${process.getuid?.() ?? 1000} ;;
   "-u") echo 0 ;;
   "-un") echo root ;;
   "-gn node") echo node ;;
@@ -749,6 +751,7 @@ describe('native Harness service installation', () => {
       expect(state).toEqual({
         checkout: repository,
         httpsPort: 443,
+        provider: 'tailscale',
         publicTarget: 'http://127.0.0.1:4080',
         serviceUser: 'node',
       })
@@ -770,10 +773,12 @@ describe('native Harness service installation', () => {
       expect(unit).not.toContain('tailscaled.service')
       expect(readFileSync(join(fixture.systemRoot, 'etc/deepseek-harness.env'), 'utf8'))
         .toContain('DSH_VPN_PROVIDER=netbird')
-      expect(readFileSync(
+      const caddy = readFileSync(
         join(fixture.systemRoot, 'usr/local/libexec/deepseek-harness/deployment/Caddyfile'),
         'utf8',
-      )).toContain('expression `{env.DSH_VPN_PROVIDER} == "netbird"`')
+      )
+      expect(caddy).toContain('expression `{env.DSH_VPN_PROVIDER} == "netbird"`')
+      expect(caddy).toContain('@owner_task_board {\n\t\texpression `{env.DSH_VPN_PROVIDER} == "tailscale"`')
       const state: unknown = JSON.parse(readFileSync(
         join(fixture.systemRoot, 'var/lib/deepseek-harness/deployment.json'),
         'utf8',
@@ -781,9 +786,42 @@ describe('native Harness service installation', () => {
       expect(state).toEqual({
         checkout: repository,
         httpsPort: 443,
+        provider: 'netbird',
         publicTarget: 'http://127.0.0.1:4080',
         serviceUser: 'node',
       })
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'cleans up Tailscale ownership when reinstalling for NetBird',
+    () => {
+      const fixture = createInstallFixture()
+      expect(runInstaller(fixture).status).toBe(0)
+      const config = join(fixture.systemRoot, 'etc/deepseek-harness.env')
+      writeFileSync(
+        config,
+        readFileSync(config, 'utf8').replace(
+          'DSH_VPN_PROVIDER=tailscale',
+          'DSH_VPN_PROVIDER=netbird',
+        ),
+      )
+      writeFileSync(fixture.calls, '')
+
+      const result = runInstaller(fixture)
+
+      expect(result.status, result.stderr).toBe(0)
+      const calls = readFileSync(fixture.calls, 'utf8')
+      expect(calls).toContain('tailscale serve --https=443 off')
+      expect(readFileSync(
+        join(fixture.systemRoot, 'etc/systemd/system/deepseek-harness.service'),
+        'utf8',
+      )).not.toContain('tailscaled.service')
+      const state = JSON.parse(readFileSync(
+        join(fixture.systemRoot, 'var/lib/deepseek-harness/deployment.json'),
+        'utf8',
+      )) as { provider?: string }
+      expect(state.provider).toBe('netbird')
     },
   )
 
@@ -798,6 +836,54 @@ describe('native Harness service installation', () => {
         readFileSync(config, 'utf8').replace(
           'DSH_PUBLIC_PORT=4080',
           'DSH_PUBLIC_PORT=4180',
+        ),
+      )
+      writeFileSync(fixture.calls, '')
+
+      const result = runLifecycle(fixture, 'restart')
+
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain(
+        "run './start.sh install' to apply them safely",
+      )
+      expect(readFileSync(fixture.calls, 'utf8')).not.toContain(
+        'systemctl restart deepseek-harness.service',
+      )
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'rejects deployment state without its installed VPN provider',
+    () => {
+      const fixture = createInstallFixture()
+      expect(runInstaller(fixture).status).toBe(0)
+      const statePath = join(fixture.systemRoot, 'var/lib/deepseek-harness/deployment.json')
+      const state = JSON.parse(readFileSync(statePath, 'utf8')) as Record<string, unknown>
+      delete state.provider
+      writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`)
+      writeFileSync(fixture.calls, '')
+
+      const result = runLifecycle(fixture, 'restart')
+
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain('deployment state is malformed')
+      expect(readFileSync(fixture.calls, 'utf8')).not.toContain(
+        'systemctl restart deepseek-harness.service',
+      )
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'requires install to apply a changed VPN provider',
+    () => {
+      const fixture = createInstallFixture()
+      expect(runInstaller(fixture).status).toBe(0)
+      const config = join(fixture.systemRoot, 'etc/deepseek-harness.env')
+      writeFileSync(
+        config,
+        readFileSync(config, 'utf8').replace(
+          'DSH_VPN_PROVIDER=tailscale',
+          'DSH_VPN_PROVIDER=netbird',
         ),
       )
       writeFileSync(fixture.calls, '')
@@ -991,6 +1077,63 @@ describe('native Harness service installation', () => {
     },
   )
 
+  it.runIf(process.platform === 'linux').each([
+    ['the explicit service home', 'explicit'],
+    ['the HOME fallback', 'default'],
+    ['a tilde service home', 'tilde'],
+    ['another home', 'other'],
+  ] as const)(
+    'handles a dsh web process using %s',
+    async (_case, mode) => {
+      const fixture = createInstallFixture()
+      const competingEnv: NodeJS.ProcessEnv = {
+        ...process.env,
+        HOME: fixture.home,
+      }
+      delete competingEnv.DSH_HOME
+      if (mode !== 'default') {
+        competingEnv.DSH_HOME =
+          mode === 'explicit'
+            ? join(fixture.home, '.dsh')
+            : mode === 'tilde'
+              ? '~/.dsh'
+              : join(fixture.root, 'other-home', '.dsh')
+      }
+      const competing = spawn(
+        process.execPath,
+        ['-e', 'setInterval(() => {}, 1_000)', 'dsh', 'web'],
+        {
+          env: competingEnv,
+          stdio: 'ignore',
+        },
+      )
+      const exited = waitForExit(competing)
+      try {
+        await once(competing, 'spawn')
+        const result = runInstaller(fixture)
+        const calls = readFileSync(fixture.calls, 'utf8')
+        if (mode !== 'other') {
+          expect(result.status).not.toBe(0)
+          expect(result.stderr).toContain(
+            `another dsh web process already uses ${join(fixture.home, '.dsh')}`,
+          )
+          expect(calls).not.toContain(
+            'systemctl enable --now deepseek-harness.service',
+          )
+        } else {
+          expect(result.status, result.stderr).toBe(0)
+          expect(calls).toContain(
+            'systemctl enable --now deepseek-harness.service',
+          )
+        }
+        expect(competing.exitCode).toBeNull()
+      } finally {
+        competing.kill('SIGTERM')
+        await exited
+      }
+    },
+  )
+
   it.runIf(process.platform === 'linux')(
     'refuses an unrelated loopback listener',
     () => {
@@ -1048,6 +1191,30 @@ describe('native Harness service installation', () => {
       ).toContain('Description=DeepSeek Harness')
       expect(readFileSync(fixture.calls, 'utf8')).not.toContain(
         'systemctl disable --now deepseek-harness.service',
+      )
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'uses the installed provider when configuration changes before uninstall',
+    () => {
+      const fixture = createInstallFixture()
+      expect(runInstaller(fixture).status).toBe(0)
+      const config = join(fixture.systemRoot, 'etc/deepseek-harness.env')
+      writeFileSync(
+        config,
+        readFileSync(config, 'utf8').replace(
+          'DSH_VPN_PROVIDER=tailscale',
+          'DSH_VPN_PROVIDER=netbird',
+        ),
+      )
+      writeFileSync(fixture.calls, '')
+
+      const result = runLifecycle(fixture, 'uninstall')
+
+      expect(result.status, result.stderr).toBe(0)
+      expect(readFileSync(fixture.calls, 'utf8')).toContain(
+        'tailscale serve --https=443 off',
       )
     },
   )
@@ -1205,6 +1372,38 @@ describe('native Harness service installation', () => {
 
 describe('native Harness runtime', () => {
   it.runIf(process.platform === 'linux')(
+    'refuses another dsh web process using the service home',
+    async () => {
+      const fixture = createRuntimeFixture()
+      const competing = spawn(
+        process.execPath,
+        ['-e', 'setInterval(() => {}, 1_000)', 'dsh', 'web'],
+        {
+          env: {
+            ...process.env,
+            DSH_HOME: join(fixture.root, '.dsh'),
+            HOME: fixture.root,
+          },
+          stdio: 'ignore',
+        },
+      )
+      const competingExit = waitForExit(competing)
+      try {
+        await once(competing, 'spawn')
+        const result = await waitForExit(spawnRuntime(fixture))
+        expect(result.code).not.toBe(0)
+        expect(result.stderr).toContain(
+          `another dsh web process already uses ${join(fixture.root, '.dsh')}`,
+        )
+        expect(competing.exitCode).toBeNull()
+      } finally {
+        competing.kill('SIGTERM')
+        await competingExit
+      }
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
     'reports ready only after identity and API namespace probes pass',
     async () => {
       const fixture = createRuntimeFixture()
@@ -1220,7 +1419,9 @@ describe('native Harness runtime', () => {
         expect(log).toContain(
           'tailscale serve --yes --bg --https=443 http://127.0.0.1:4080',
         )
-        expect(log).toContain('caddy start token=fixture-token')
+        expect(log).toContain(
+          'caddy start token=fixture-token provider=tailscale bind=127.0.0.1',
+        )
         expect(log.indexOf('backend start')).toBeLessThan(
           log.indexOf('caddy start token=fixture-token'),
         )

@@ -33,7 +33,7 @@ The Harness `--trusted-host` option is a DNS-rebinding and cross-site fence, not
 docker build -t dsh-tailscale:local -f Dockerfile .
 ```
 
-The image installs the published `@deepseek-ai/dsh` package, its runtime peers, pnpm for profile-plugin management from npm, the Docker 28 client with its maintained CLI plugins, Python 3 with pip, venv support, headers, and both command names, plus GCC, G++, make, and pkg-config for native builds. It does not run a Docker daemon. `DSH_VERSION` defaults to `0.1.1-rc.2`, while `PNPM_VERSION` matches the repository's `packageManager`; update either build argument when its pinned release changes. `run-docker.sh` uses Compose's layer cache by default, so an unchanged relaunch skips the package-install layers; set `DSH_BUILD_NO_CACHE=1` only when an explicit clean rebuild is required.
+The image installs the published `@deepseek-ai/dsh` package, its runtime peers, pnpm for profile-plugin management from npm, the Docker 28 client with its maintained CLI plugins, Python 3 with pip, venv support, headers, and both command names, plus GCC, G++, make, and pkg-config for native builds. It does not run a Docker daemon. `DSH_VERSION` defaults to `0.1.2-alpha.4`, while `PNPM_VERSION` matches the repository's `packageManager`; update either build argument when its pinned release changes. `run-docker.sh` uses Compose's layer cache by default, so an unchanged relaunch skips the package-install layers; set `DSH_BUILD_NO_CACHE=1` only when an explicit clean rebuild is required.
 
 ## Host requirements
 

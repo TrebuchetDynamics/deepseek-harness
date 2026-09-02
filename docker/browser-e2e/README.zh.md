@@ -8,7 +8,7 @@
 容器——可能两者都没有，这会彻底阻断该车道，即便仓库其余测试都正常。
 
 `docker/browser-e2e` 是 Phase 1 的答案：一个可重现的容器镜像，内置仓库 lockfile
-解析出的精确 Chromium 构建及其系统库，使车道可在任意具备 Docker 的环境运行。它
+解析出的精确 Chromium 构建及其系统库，使车道在主机侧只需 Docker 与标准 POSIX shell 工具，无需主机 Node 或 pnpm。它
 与托管 CI consumer 作业已在用的做法（`.github/workflows/ci.yml` 中的 "Install
 Playwright Chromium and hosted dependencies"）一致，并由专属 CI 作业
 （`.github/workflows/browser-e2e-docker.yml`）自行验证。
@@ -31,7 +31,7 @@ Playwright Chromium and hosted dependencies"）一致，并由专属 CI 作业
   构建时由 `playwright install --with-deps` 安装。
 - 镜像安装 setuid Chromium 与 Bubblewrap 辅助程序。容器以调用者 uid 运行；完整
   车道需要 `--privileged`，因为产品测试会创建嵌套文件系统沙箱。
-- 包装脚本将调用者的 pnpm store 挂载到相同绝对路径，使重复运行复用下载内容，同时避免让主机 `node_modules` 指向仅容器可见的 store。
+- 包装脚本将容器下载持久化到调用者拥有的 `${XDG_CACHE_HOME:-$HOME/.cache}/deepseek-harness/browser-e2e-pnpm-store` 目录。挂载的检出在主机侧仍可使用，且包装脚本不会调用主机 Node 或 pnpm。
 
 ## 运行
 

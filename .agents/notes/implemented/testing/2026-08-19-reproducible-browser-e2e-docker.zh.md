@@ -10,9 +10,9 @@ Status: implemented
 
 ## Decision
 
-Phase 1 交付一个可重现的 Docker 运行时，以及一个专门证明它的 CI 作业。`docker/browser-e2e/` 是工具链镜像（node 24-bookworm + pnpm + `playwright install --with-deps` 安装精确 lockfile 解析的 Chromium，setuid `chrome_sandbox`、Bubblewrap、全局可写 `/pnpm-store`）。它不内嵌检出：`docker/browser-e2e/run.sh` 与 CI 作业将仓库以读写方式挂载到 `/workspace`，并在其中运行 `pnpm install --frozen-lockfile && pnpm run test:web`。浏览器字节与 OS 库一次性预置于以 `pnpm-lock.yaml` 为键的层；工作区安装按次从当前检出进行，因此镜像保持确定性，而无需装入一棵易变的树。包装脚本以调用者 uid 和隔离 bridge 网络启动。完整车道的产品测试会创建嵌套文件系统沙箱，因此需要显式 `--privileged`；自定义 smoke 命令保持非特权。`--host-network` 单独用于访问仅主机可见的服务。
+Phase 1 交付一个可重现的 Docker 运行时，以及一个专门证明它的 CI 作业。`docker/browser-e2e/` 是工具链镜像（node 24-bookworm + pnpm + `playwright install --with-deps` 安装精确 lockfile 解析的 Chromium，setuid `chrome_sandbox`、Bubblewrap、全局可写 `/pnpm-store`）。它不内嵌检出：`docker/browser-e2e/run.sh` 与 CI 作业将仓库以读写方式挂载到 `/workspace`，并在其中运行 `pnpm install --frozen-lockfile && pnpm run test:web`。浏览器字节与 OS 库一次性预置于以 `pnpm-lock.yaml` 为键的层；工作区安装按次从当前检出进行，因此镜像保持确定性，而无需装入一棵易变的树。包装脚本使用 POSIX 工具读取 pnpm 版本、将下载持久化到调用者拥有的缓存目录，并以调用者 uid 和隔离 bridge 网络启动；主机无需 Node 或 pnpm。完整车道的产品测试会创建嵌套文件系统沙箱，因此需要显式 `--privileged`；自定义 smoke 命令保持非特权。`--host-network` 单独用于访问仅主机可见的服务。
 
-`.github/workflows/browser-e2e-docker.yml` 构建镜像（GitHub 托管层缓存）并在其中无密钥地运行车道（`DSH_SNAPSHOT=replay`），绝不运行 `record` 或 `refresh`，与 [browser-snapshot CI gate 政策](2026-07-30-web-browser-snapshot-ci-gate.zh.md) 一致。
+`.github/workflows/browser-e2e-docker.yml` 配置 Buildx，使用 GitHub Actions 层缓存构建镜像，并在其中无密钥地运行车道（`DSH_SNAPSHOT=replay`），绝不运行 `record` 或 `refresh`，与 [browser-snapshot CI gate 政策](2026-07-30-web-browser-snapshot-ci-gate.zh.md) 一致。
 
 ### Scaffold 边界
 

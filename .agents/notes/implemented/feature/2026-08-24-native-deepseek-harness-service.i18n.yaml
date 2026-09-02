@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-24-native-deepseek-harness-service.md
-2026-08-24-native-deepseek-harness-service.md: 89723829090d897f814ac81cad8d2fa4c4cf561f
-2026-08-24-native-deepseek-harness-service.zh.md: 7e99490b20c4b3a76250c45a44382fdf9a3ae391
+2026-08-24-native-deepseek-harness-service.md: aa1dcaa7ad728333359bc4c673b42b3555ccc762
+2026-08-24-native-deepseek-harness-service.zh.md: 221ef7393b4bbe525b0cee36631de8d818c93945
